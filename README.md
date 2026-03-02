@@ -1,2 +1,0 @@
-# InterviewSimulator
-InterviewSimulator
