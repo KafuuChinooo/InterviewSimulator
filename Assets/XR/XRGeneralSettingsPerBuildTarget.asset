@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-8826058701212414880
+--- !u!114 &-3655831900625617220
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d236b7d11115f2143951f1e14045df39, type: 3}
   m_Name: Android Settings
   m_EditorClassIdentifier: 
-  m_LoaderManagerInstance: {fileID: 8960577484325824774}
+  m_LoaderManagerInstance: {fileID: 3184615223474152373}
   m_InitManagerOnStart: 1
 --- !u!114 &11400000
 MonoBehaviour:
@@ -28,8 +28,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Keys: 07000000
   Values:
-  - {fileID: -8826058701212414880}
---- !u!114 &8960577484325824774
+  - {fileID: -3655831900625617220}
+--- !u!114 &3184615223474152373
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -45,4 +45,4 @@ MonoBehaviour:
   m_AutomaticLoading: 0
   m_AutomaticRunning: 0
   m_Loaders:
-  - {fileID: 11400000, guid: 69f098aa78ec1f540ae4797315aa2f97, type: 2}
+  - {fileID: 11400000, guid: 10eaeaa3c68e01541a1b974edce18e83, type: 2}
