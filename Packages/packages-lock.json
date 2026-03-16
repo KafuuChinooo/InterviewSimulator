@@ -9,7 +9,7 @@
         "com.unity.xr.management": "3.2.9",
         "com.unity.xr.legacyinputhelpers": "2.1.4"
       },
-      "hash": "49be58d54f05b515ea527857b99b973e2184368c"
+      "hash": "0e9fc4f4695ace50fd64996b05ecc5404d0c0ac6"
     },
     "com.unity.burst": {
       "version": "1.8.24",
@@ -35,7 +35,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.collab-proxy": {
-      "version": "2.8.2",
+      "version": "2.11.4",
       "depth": 0,
       "source": "registry",
       "dependencies": {},
