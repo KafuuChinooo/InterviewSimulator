@@ -1,0 +1,379 @@
+using System.Collections;
+using System.Text;
+using System.IO;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+using TMPro;
+
+/// <summary>
+/// AI Voice Assistant Client cho Unity.
+/// Hỗ trợ 2 chế độ: gõ text hoặc ghi âm giọng nói.
+/// 
+/// === SETUP GUIDE ===
+/// 1. Tạo một GameObject (ví dụ: "AIManager")
+/// 2. Gắn script này vào GameObject đó
+/// 3. Kéo các UI element vào các slot trong Inspector (xem bên dưới)
+/// 4. Đảm bảo FastAPI server đang chạy: python main.py
+/// </summary>
+public class AIAudioClient : MonoBehaviour
+{
+    [Header("=== SERVER ===")]
+    [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
+    public string serverUrl = "http://127.0.0.1:8000";
+
+    [Header("=== AUDIO ===")]
+    [Tooltip("AudioSource để phát câu trả lời của AI")]
+    public AudioSource audioSource;
+
+    [Header("=== TEXT MODE UI ===")]
+    [Tooltip("InputField để gõ câu hỏi (TMP_InputField)")]
+    public TMP_InputField textInput;
+    [Tooltip("Button 'Gửi' cho chế độ text")]
+    public Button sendTextButton;
+
+    [Header("=== VOICE MODE UI ===")]
+    [Tooltip("Button 'Bắt đầu ghi âm'")]
+    public Button startRecordButton;
+    [Tooltip("Button 'Dừng và Gửi'")]
+    public Button stopSendButton;
+    [Tooltip("Số giây ghi âm tối đa")]
+    public int maxRecordSeconds = 10;
+
+    [Header("=== DEFAULT SCRIPT MODE UI ===")]
+    [Tooltip("Button để đọc đoạn text mặc định")]
+    public Button readDefaultScriptButton;
+    [Tooltip("Đoạn script mặc định để TTS đọc")]
+    [TextArea(3, 5)]
+    public string defaultScript = "Xin chào, đây là đoạn văn bản được đọc tự động.";
+
+    [Header("=== STATUS UI ===")]
+    [Tooltip("Label hiển thị trạng thái (ví dụ: 'Đang ghi âm...', 'AI đang trả lời...')")]
+    public TMP_Text statusLabel;
+    [Tooltip("Label hiển thị text đã nhận dạng từ giọng nói")]
+    public TMP_Text transcriptLabel;
+
+    // --- Private state ---
+    private AudioClip _recordingClip;
+    private bool _isRecording = false;
+    private bool _isBusy = false;
+
+    // ─────────────────────────────────────────────────────────────
+    // Unity Lifecycle
+    // ─────────────────────────────────────────────────────────────
+
+    private void Start()
+    {
+        // Tự thêm AudioSource nếu chưa có
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+            }
+        }
+
+        // Gắn sự kiện cho các button
+        if (sendTextButton)   sendTextButton.onClick.AddListener(OnSendTextClicked);
+        if (startRecordButton) startRecordButton.onClick.AddListener(OnStartRecordClicked);
+        if (stopSendButton)   stopSendButton.onClick.AddListener(OnStopAndSendClicked);
+        if (readDefaultScriptButton) readDefaultScriptButton.onClick.AddListener(OnReadDefaultScriptClicked);
+
+        // Trạng thái ban đầu
+        SetStopButtonInteractable(false);
+        SetStatus("Sẵn sàng.");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // TEXT MODE & DEFAULT SCRIPT
+    // ─────────────────────────────────────────────────────────────
+
+    public void OnSendTextClicked()
+    {
+        if (_isBusy) return;
+        string msg = textInput ? textInput.text.Trim() : "";
+        if (string.IsNullOrEmpty(msg)) { SetStatus("Vui lòng nhập câu hỏi."); return; }
+        StartCoroutine(ChatVoiceCoroutine(msg));
+    }
+
+    public void OnReadDefaultScriptClicked()
+    {
+        if (_isBusy) return;
+        if (string.IsNullOrEmpty(defaultScript)) { SetStatus("Script mặc định đang trống."); return; }
+        StartCoroutine(ReadTextCoroutine(defaultScript));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // VOICE MODE
+    // ─────────────────────────────────────────────────────────────
+
+    public void OnStartRecordClicked()
+    {
+        if (_isBusy || _isRecording) return;
+
+        if (Microphone.devices.Length == 0)
+        {
+            SetStatus("Lỗi: Không tìm thấy microphone!");
+            return;
+        }
+
+        _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
+        _isRecording = true;
+        SetStatus("🔴 Đang ghi âm... (bấm Dừng khi xong)");
+        SetStartButtonInteractable(false);
+        SetStopButtonInteractable(true);
+    }
+
+    public void OnStopAndSendClicked()
+    {
+        if (!_isRecording) return;
+
+        int recordedSamples = Microphone.GetPosition(null);
+        Microphone.End(null);
+        _isRecording = false;
+        SetStopButtonInteractable(false);
+        SetStartButtonInteractable(true);
+
+        if (recordedSamples < 100)
+        {
+            SetStatus("Ghi âm quá ngắn. Thử lại.");
+            // Dọn dẹp clip ghi âm lỗi
+            if (_recordingClip != null) Destroy(_recordingClip);
+            return;
+        }
+
+        // Cắt clip theo số sample thực tế
+        float[] data = new float[recordedSamples * _recordingClip.channels];
+        _recordingClip.GetData(data, 0);
+        AudioClip trimmed = AudioClip.Create("rec", recordedSamples, _recordingClip.channels, _recordingClip.frequency, false);
+        trimmed.SetData(data, 0);
+
+        // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
+        Destroy(_recordingClip);
+
+        StartCoroutine(SttThenChatCoroutine(trimmed));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // COROUTINES
+    // ─────────────────────────────────────────────────────────────
+
+    /// <summary>Bước 1: Gửi WAV lên /api/stt → lấy text → Bước 2</summary>
+    private IEnumerator SttThenChatCoroutine(AudioClip clip)
+    {
+        _isBusy = true;
+        SetStatus("⏳ Đang nhận dạng giọng nói...");
+
+        byte[] wavBytes = AudioClipToWav(clip);
+        string endpoint = serverUrl + "/api/stt";
+
+        WWWForm form = new WWWForm();
+        form.AddBinaryData("audio", wavBytes, "recording.wav", "audio/wav");
+
+        using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
+        {
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                SetStatus("Lỗi STT: " + req.error);
+                Debug.LogError("[AI] STT error: " + req.error);
+                _isBusy = false;
+                yield break;
+            }
+
+            string json = req.downloadHandler.text;
+            SttResponse sttResp = JsonUtility.FromJson<SttResponse>(json);
+            string recognizedText = sttResp?.text?.Trim();
+
+            if (string.IsNullOrEmpty(recognizedText))
+            {
+                SetStatus("Không nhận dạng được giọng nói. Thử lại.");
+                _isBusy = false;
+                yield break;
+            }
+
+            if (transcriptLabel) transcriptLabel.text = "🗣 Bạn: " + recognizedText;
+            SetStatus("✅ Đã nhận dạng: " + recognizedText);
+            Debug.Log("[AI] Recognized: " + recognizedText);
+
+            // Tiếp tục gửi lên AI
+            yield return ChatVoiceCoroutine(recognizedText);
+        }
+    }
+
+    /// <summary>Bước 2: Gửi text lên /api/chat_voice → nhận WAV → phát</summary>
+    private IEnumerator ChatVoiceCoroutine(string message)
+    {
+        _isBusy = true;
+        SetStatus("🤖 AI đang xử lý...");
+
+        string endpoint = serverUrl + "/api/chat_voice";
+        string jsonBody = JsonUtility.ToJson(new ChatPayload { message = message });
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+
+        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        {
+            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
+            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                SetStatus("Lỗi kết nối: " + req.error);
+                Debug.LogError("[AI] Chat error: " + req.error);
+                _isBusy = false;
+                yield break;
+            }
+
+            AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
+            if (aiClip != null)
+            {
+                if (audioSource.isPlaying) audioSource.Stop();
+
+                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
+                if (audioSource.clip != null) 
+                {
+                    Destroy(audioSource.clip);
+                }
+
+                audioSource.clip = aiClip;
+                audioSource.Play();
+                SetStatus("🔊 AI đang trả lời...");
+                Debug.Log("[AI] Playing response audio.");
+            }
+            else
+            {
+                SetStatus("Lỗi: Không đọc được audio từ server.");
+            }
+        }
+
+        _isBusy = false;
+    }
+
+    /// <summary>Gửi text trực tiếp lên /api/tts → nhận WAV → phát</summary>
+    private IEnumerator ReadTextCoroutine(string text)
+    {
+        _isBusy = true;
+        SetStatus("⏳ Đang tạo giọng nói (TTS)...");
+
+        string endpoint = serverUrl + "/api/tts";
+        string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text });
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+
+        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        {
+            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
+            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                SetStatus("Lỗi TTS: " + req.error);
+                Debug.LogError("[AI] TTS error: " + req.error);
+                _isBusy = false;
+                yield break;
+            }
+
+            AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
+            if (aiClip != null)
+            {
+                if (audioSource.isPlaying) audioSource.Stop();
+
+                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
+                if (audioSource.clip != null) 
+                {
+                    Destroy(audioSource.clip);
+                }
+
+                audioSource.clip = aiClip;
+                audioSource.Play();
+                SetStatus("🔊 Đang đọc văn bản...");
+                Debug.Log("[AI] Playing TTS audio.");
+            }
+            else
+            {
+                SetStatus("Lỗi: Không đọc được audio từ server.");
+            }
+        }
+
+        _isBusy = false;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────────────────────
+
+    private void SetStatus(string msg)
+    {
+        if (statusLabel) statusLabel.text = msg;
+        Debug.Log("[AI] " + msg);
+    }
+
+    private void SetStartButtonInteractable(bool v)
+    {
+        if (startRecordButton) startRecordButton.interactable = v;
+    }
+
+    private void SetStopButtonInteractable(bool v)
+    {
+        if (stopSendButton) stopSendButton.interactable = v;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AudioClip → WAV bytes (PCM 16-bit)
+    // ─────────────────────────────────────────────────────────────
+
+    private static byte[] AudioClipToWav(AudioClip clip)
+    {
+        float[] samples = new float[clip.samples * clip.channels];
+        clip.GetData(samples, 0);
+
+        short[] intData = new short[samples.Length];
+        byte[] bytesData = new byte[samples.Length * 2];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            intData[i] = (short)(samples[i] * 32767f);
+            byte[] byteArr = System.BitConverter.GetBytes(intData[i]);
+            bytesData[i * 2]     = byteArr[0];
+            bytesData[i * 2 + 1] = byteArr[1];
+        }
+
+        using (MemoryStream stream = new MemoryStream())
+        using (BinaryWriter writer = new BinaryWriter(stream))
+        {
+            int hz        = clip.frequency;
+            int channels  = clip.channels;
+            int dataSize  = bytesData.Length;
+
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataSize);
+            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+            writer.Write(Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);          // chunk size
+            writer.Write((short)1);    // PCM
+            writer.Write((short)channels);
+            writer.Write(hz);
+            writer.Write(hz * channels * 2);
+            writer.Write((short)(channels * 2));
+            writer.Write((short)16);   // bits per sample
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataSize);
+            writer.Write(bytesData);
+
+            return stream.ToArray();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // JSON Models
+    // ─────────────────────────────────────────────────────────────
+    [System.Serializable] private class ChatPayload  { public string message; }
+    [System.Serializable] private class SttResponse  { public string text; }
+    [System.Serializable] private class TtsPayload   { public string text; }
+}
