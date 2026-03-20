@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VirtuHire Assistant (Web)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .pulse {
+            animation: pulse-animation 1.5s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen font-sans flex flex-col">
+
+    <header class="bg-gray-800 shadow-md p-4 text-center border-b border-gray-700">
+        <h1 class="text-2xl font-bold tracking-wider text-blue-400">VIRTUHIRE INTERVIEW 🤖</h1>
+    </header>
+
+    <main class="flex-grow flex flex-col p-4 max-w-3xl mx-auto w-full">
+        <!-- Setup Phase -->
+        <div id="setup-container" class="bg-gray-800 rounded-lg shadow-lg p-6 mb-6 flex-grow flex flex-col justify-center text-center">
+            <h2 class="text-xl mb-4 text-gray-300">Welcome to your virtual interview setup.</h2>
+            <div class="mb-6">
+                <label for="job-title" class="block text-sm font-medium text-gray-400 mb-2">What kind of job do you want to interview about?</label>
+                <input type="text" id="job-title" class="w-full bg-gray-700 border border-gray-600 rounded-md py-3 px-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-lg" placeholder="e.g. Software Engineer, Data Analyst, Manager">
+            </div>
+            <button id="start-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 mx-auto w-full md:w-auto text-lg shadow-lg">START INTERVIEW</button>
+        </div>
+
+        <!-- Chat Phase -->
+        <div id="chat-container" class="hidden flex-col h-full bg-gray-800 rounded-lg shadow-lg mb-6 flex-grow overflow-hidden relative">
+             <!-- Status bar -->
+            <div class="bg-gray-950 px-4 py-2 border-b border-gray-700 flex justify-between items-center text-sm">
+                 <span id="interview-topic" class="font-semibold text-gray-400">Topic: -</span>
+                 <span id="ai-status" class="text-green-400 font-medium">Ready</span>
+            </div>
+             
+             <!-- Messages -->
+            <div id="chat-messages" class="flex-grow p-4 overflow-y-auto space-y-4 flex flex-col mb-[80px]">
+                <!-- Messages will be injected here -->
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div id="controls-container" class="hidden fixed bottom-0 left-0 right-0 p-4 bg-gray-800 border-t border-gray-600 z-10 flex justify-center items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+            <div class="flex justify-center items-center max-w-3xl w-full mx-auto">
+                <button id="mic-btn" class="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex justify-center items-center text-xl transition-all shadow-lg mx-3 flex-shrink-0">
+                    <i class="fas fa-microphone"></i>
+                </button>
+                <div class="relative w-full max-w-lg">
+                     <input type="text" id="text-input" class="w-full bg-gray-700 border border-gray-600 rounded-full py-3 pl-4 pr-12 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Type answer or use mic">
+                     <button id="send-btn" class="absolute right-2 top-1.5 w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex justify-center items-center text-white transition-all">
+                          <i class="fas fa-paper-plane text-sm"></i>
+                     </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const setupContainer = document.getElementById('setup-container');
+        const chatContainer = document.getElementById('chat-container');
+        const controlsContainer = document.getElementById('controls-container');
+        
+        const jobTitleInput = document.getElementById('job-title');
+        const startBtn = document.getElementById('start-btn');
+        const interviewTopic = document.getElementById('interview-topic');
+        const aiStatus = document.getElementById('ai-status');
+        const chatMessages = document.getElementById('chat-messages');
+        
+        const micBtn = document.getElementById('mic-btn');
+        const textInput = document.getElementById('text-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        let chatHistory = [];
+        let currentJobTitle = "";
+        let isRecording = false;
+
+        // Web Speech API STT
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isRecording = true;
+                micBtn.classList.replace('bg-red-600', 'bg-blue-600');
+                micBtn.classList.add('pulse');
+                textInput.placeholder = "Listening...";
+                aiStatus.textContent = "Listening...";
+                aiStatus.className = "text-red-400 font-medium";
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                textInput.value = transcript;
+                sendUserMessage();
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error", event.error);
+                stopRecording();
+            };
+
+            recognition.onend = () => {
+                stopRecording();
+            };
+        } else {
+             alert("Web Speech API STT is not supported in this browser. Please use Chrome/Edge.");
+        }
+
+        let currentAudio = null;
+
+        const speakText = async (text) => {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.removeAttribute('src');
+                currentAudio.load();
+            }
+            
+            aiStatus.textContent = "Generating Audio...";
+            aiStatus.className = "text-yellow-400 font-medium";
+
+            try {
+                const res = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                if (!res.ok) throw new Error("TTS Failed");
+
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                
+                currentAudio = new Audio(url);
+                currentAudio.onplay = () => {
+                     aiStatus.textContent = "Speaking...";
+                };
+                currentAudio.onended = () => {
+                     aiStatus.textContent = "Ready";
+                     aiStatus.className = "text-green-400 font-medium";
+                };
+                currentAudio.play();
+            } catch(e) {
+                console.error("TTS Error:", e);
+                aiStatus.textContent = "Ready (TTS Error)";
+                aiStatus.className = "text-red-400 font-medium";
+            }
+        };
+
+        const addMessageToChat = (role, content) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = `max-w-[85%] rounded-2xl px-4 py-2 shadow-md leading-relaxed ${
+                role === 'user' 
+                ? 'bg-blue-600 text-white rounded-tr-none' 
+                : 'bg-gray-700 text-gray-100 rounded-tl-none border border-gray-600'
+            }`;
+            bubble.innerHTML = content.replace(/\n/g, '<br>'); // Simple replace for newlines
+            
+            wrapper.appendChild(bubble);
+            chatMessages.appendChild(wrapper);
+            // Auto scroll calculation
+            const scrollContainer = chatMessages;
+            scrollContainer.scrollTop = scrollContainer.scrollHeight; 
+            
+            // For main window scrolling just in case
+            window.scrollTo(0, document.body.scrollHeight);
+        };
+
+        const setStatus = (status, type="info") => {
+             aiStatus.textContent = status;
+             if(type === "info") aiStatus.className = "text-blue-400 font-medium animate-pulse";
+             else if(type === "error") aiStatus.className = "text-red-400 font-medium";
+             else aiStatus.className = "text-green-400 font-medium";
+        };
+
+        const sendMessageToAPI = async (messageText) => {
+             try {
+                 setStatus("Thinking...", "info");
+                 
+                 // Show thinking indicator locally
+                 aiStatus.textContent = "Thinking...";
+                 
+                 const payload = {
+                     message: messageText,
+                     job_title: chatHistory.length === 0 ? currentJobTitle : null,
+                     history: chatHistory
+                 };
+
+                 const res = await fetch('/api/chat', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify(payload)
+                 });
+                 
+                 const data = await res.json();
+                 
+                 if(data.error) {
+                     addMessageToChat('assistant', "Error: " + data.error);
+                     setStatus("Error", "error");
+                 } else {
+                     addMessageToChat('assistant', data.response);
+                     chatHistory.push({role: 'user', content: messageText});
+                     chatHistory.push({role: 'assistant', content: data.response});
+                     speakText(data.response);
+                 }
+             } catch (err) {
+                 console.error(err);
+                 addMessageToChat('assistant', "Network Error: Could not connect to API.");
+                 setStatus("Error", "error");
+             }
+        };
+
+        const sendUserMessage = () => {
+             const text = textInput.value.trim();
+             if(!text) return;
+             
+             addMessageToChat('user', text);
+             textInput.value = '';
+             sendMessageToAPI(text);
+        };
+
+        const toggleRecording = () => {
+            if(!recognition) return;
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                try {
+                    recognition.start();
+                } catch(e) {
+                    // prevent double start error if recognition is still busy
+                    console.log("Recognition is already started or ending");
+                }
+            }
+        };
+
+        const stopRecording = () => {
+            if(!isRecording) return;
+            isRecording = false;
+            micBtn.classList.replace('bg-blue-600', 'bg-red-600');
+            micBtn.classList.remove('pulse');
+            textInput.placeholder = "Type answer or use mic";
+            setStatus("Ready", "ready");
+        };
+
+        // Event Listeners
+        startBtn.addEventListener('click', () => {
+             const title = jobTitleInput.value.trim();
+             if(!title) {
+                 alert("Please enter a job title");
+                 return;
+             }
+             currentJobTitle = title;
+             
+             setupContainer.classList.add('hidden');
+             chatContainer.classList.remove('hidden');
+             chatContainer.classList.add('flex');
+             controlsContainer.classList.remove('hidden');
+             controlsContainer.classList.add('flex');
+             interviewTopic.textContent = `Topic: ${currentJobTitle}`;
+
+             // Start
+             const initialPrompt = `Hello, I am ready for my interview for the ${currentJobTitle} position. Please ask me the first basic question in English.`;
+             addMessageToChat('user', "*(Started Interview)*");
+             sendMessageToAPI(initialPrompt);
+        });
+
+        micBtn.addEventListener('click', toggleRecording);
+        
+        sendBtn.addEventListener('click', sendUserMessage);
+        
+        textInput.addEventListener('keypress', (e) => {
+             if(e.key === 'Enter') sendUserMessage();
+        });
+        
+        // Initial setup
+    </script>
+</body>
+</html>
