@@ -76,26 +76,35 @@ async def generate_chat_response(messages: list[dict]) -> dict:
 
         reply_content = response.text
 
-        # Try to extract from JSON if the model hallucinates JSON
+        # Check if LLM wrapped in markdown JSON lock
+        clean_json_str = reply_content
+        if "```json" in clean_json_str:
+            clean_json_str = clean_json_str.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_json_str:
+            clean_json_str = clean_json_str.split("```")[1].split("```")[0].strip()
+
+        # Try to parse as JSON first (for the script generator and fallback)
         try:
-            parsed_json = json.loads(reply_content)
+            parsed_json = json.loads(clean_json_str)
+
+            # 1. Did we get the VR script structure JSON?
+            if "session_config" in parsed_json and "phases" in parsed_json:
+                return {"response": parsed_json, "role": "assistant", "is_json": True}
+
+            # 2. Conversational JSON fallback (if hallucinated)
             if "response" in parsed_json:
                 final_text = str(parsed_json["response"])
             elif "question" in parsed_json:
                 final_text = str(parsed_json["question"])
             else:
-                string_values = [str(v) for v in parsed_json.values() if isinstance(v, str)]
-                final_text = string_values[0] if string_values else str(parsed_json)
+                 string_values = [str(v) for v in parsed_json.values() if isinstance(v, str)]
+                 final_text = string_values[0] if string_values else str(parsed_json)
         except Exception:
             final_text = str(reply_content)
 
-        # Clean markdown characters
+        # Conversational Cleanup (ONLY for short conversational texts)
         final_text = final_text.replace('**', '').replace('*', '').replace('_', '').replace('#', '').strip()
-
-        # Remove non-ASCII (emojis, etc.)
         final_text = re.sub(r'[^\x00-\x7F]+', ' ', final_text)
-
-        # Collapse multiple spaces/newlines
         final_text = re.sub(r'\s+', ' ', final_text).strip()
 
         # Truncate if too long (rambling)

@@ -23,8 +23,10 @@ templates = Jinja2Templates(directory="templates")
 
 # Pydantic models for API request validation
 class ChatRequest(BaseModel):
-    message: str
+    message: str = ""
     job_title: str | None = None
+    interview_type: str = "Attitude Interview"
+    language: str = "Vietnamese"
     history: list[Message] = []
 
 @app.get("/", response_class=HTMLResponse)
@@ -39,7 +41,7 @@ async def chat_endpoint(req: ChatRequest):
     
     # Prepend the system prompt if a job title is provided
     if req.job_title:
-        sys_prompt = get_system_prompt(req.job_title)
+        sys_prompt = get_system_prompt(req.job_title, req.interview_type, req.language)
         messages.append({"role": "system", "content": sys_prompt})
         
     # Append the chat history sent from the client
@@ -97,7 +99,7 @@ async def chat_voice_endpoint(req: ChatRequest):
     
     # Prepend the system prompt if a job title is provided
     if req.job_title:
-        sys_prompt = get_system_prompt(req.job_title)
+        sys_prompt = get_system_prompt(req.job_title, req.interview_type, req.language)
         messages.append({"role": "system", "content": sys_prompt})
         
     # Append the chat history sent from the client
@@ -116,6 +118,12 @@ async def chat_voice_endpoint(req: ChatRequest):
         return {"error": chat_response["error"]}
         
     ai_text = chat_response.get("response", "")
+    
+    # Bỏ qua render audio nếu AI trả về cục object bự (do JSON Script VR mới)
+    if isinstance(ai_text, dict):
+        print("[API] Response is a JSON script. Trả thẳng về JSON, không sinh audio.")
+        return {"response": ai_text, "role": "assistant"}
+    
     print(f"[API] AI đã trả lời xong:\n------------------\n{ai_text}\n------------------")
     print(f"[API] Đang bắt đầu gửi văn bản cho Piper để tạo giọng nói...")
     
