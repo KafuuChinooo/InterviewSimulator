@@ -658,6 +658,10 @@ MonoBehaviour:
   maxRecordSeconds: 10
   readDefaultScriptButton: {fileID: 1135171486}
   defaultScript: hi, this is kafuuchino speaking. you did good today
+  jobTitle: Data Analyst
+  interviewType: Attitude Interview
+  language: Vietnamese
+  generateScriptButton: {fileID: 0}
   statusLabel: {fileID: 72627481}
   transcriptLabel: {fileID: 2086004999}
 --- !u!1 &389255504
@@ -1425,15 +1429,15 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: fda2e0166fbbc724b89f1159e2a4cfd2, type: 3}
       propertyPath: m_LocalScale.x
-      value: 2.7603188
+      value: 2.8944702
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: fda2e0166fbbc724b89f1159e2a4cfd2, type: 3}
       propertyPath: m_LocalScale.y
-      value: 2.7603188
+      value: 2.7467365
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: fda2e0166fbbc724b89f1159e2a4cfd2, type: 3}
       propertyPath: m_LocalScale.z
-      value: 2.7603188
+      value: 2.8944702
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: fda2e0166fbbc724b89f1159e2a4cfd2, type: 3}
       propertyPath: m_LocalPosition.x

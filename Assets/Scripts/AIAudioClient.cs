@@ -47,6 +47,16 @@ public class AIAudioClient : MonoBehaviour
     [TextArea(3, 5)]
     public string defaultScript = "Xin chào, đây là đoạn văn bản được đọc tự động.";
 
+    [Header("=== VR SCRIPT CONFIG ===")]
+    [Tooltip("Vị trí công việc (VD: Data Analyst)")]
+    public string jobTitle = "Data Analyst";
+    [Tooltip("Loại phỏng vấn (VD: Attitude Interview, Role-Specific Interview)")]
+    public string interviewType = "Attitude Interview";
+    [Tooltip("Ngôn ngữ (VD: Vietnamese, English)")]
+    public string language = "Vietnamese";
+    [Tooltip("Button để gọi API sinh kịch bản JSON")]
+    public Button generateScriptButton;
+
     [Header("=== STATUS UI ===")]
     [Tooltip("Label hiển thị trạng thái (ví dụ: 'Đang ghi âm...', 'AI đang trả lời...')")]
     public TMP_Text statusLabel;
@@ -79,10 +89,18 @@ public class AIAudioClient : MonoBehaviour
         if (startRecordButton) startRecordButton.onClick.AddListener(OnStartRecordClicked);
         if (stopSendButton)   stopSendButton.onClick.AddListener(OnStopAndSendClicked);
         if (readDefaultScriptButton) readDefaultScriptButton.onClick.AddListener(OnReadDefaultScriptClicked);
+        if (generateScriptButton) generateScriptButton.onClick.AddListener(OnGenerateScriptClicked);
 
         // Trạng thái ban đầu
         SetStopButtonInteractable(false);
         SetStatus("Sẵn sàng.");
+
+        // Kiểm tra và in danh sách microphone để dễ debug
+        if (Microphone.devices.Length > 0) {
+            foreach (var device in Microphone.devices) Debug.Log("Detected Mic: " + device);
+        } else {
+            Debug.LogError("No Microphone detected!");
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -102,6 +120,12 @@ public class AIAudioClient : MonoBehaviour
         if (_isBusy) return;
         if (string.IsNullOrEmpty(defaultScript)) { SetStatus("Script mặc định đang trống."); return; }
         StartCoroutine(ReadTextCoroutine(defaultScript));
+    }
+
+    public void OnGenerateScriptClicked()
+    {
+        if (_isBusy) return;
+        StartCoroutine(GenerateVRScriptCoroutine());
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -179,11 +203,13 @@ public class AIAudioClient : MonoBehaviour
             {
                 SetStatus("Lỗi STT: " + req.error);
                 Debug.LogError("[AI] STT error: " + req.error);
+                Debug.Log("[AI] Response Code: " + req.responseCode);
                 _isBusy = false;
                 yield break;
             }
 
             string json = req.downloadHandler.text;
+            Debug.Log("[AI] STT Raw JSON: " + json);
             SttResponse sttResp = JsonUtility.FromJson<SttResponse>(json);
             string recognizedText = sttResp?.text?.Trim();
 
@@ -249,6 +275,49 @@ public class AIAudioClient : MonoBehaviour
             {
                 SetStatus("Lỗi: Không đọc được audio từ server.");
             }
+        }
+
+        _isBusy = false;
+    }
+
+    /// <summary>Gọi API sinh kịch bản VR JSON (không sinh audio)</summary>
+    private IEnumerator GenerateVRScriptCoroutine()
+    {
+        _isBusy = true;
+        SetStatus("⏳ Đang tạo kịch bản VR...");
+
+        string endpoint = serverUrl + "/api/chat";
+        string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
+            message = "Generate interview script",
+            job_title = jobTitle,
+            interview_type = interviewType,
+            language = language
+        });
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+
+        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        {
+            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                SetStatus("Lỗi kết nối: " + req.error);
+                Debug.LogError("[AI] Script error: " + req.error);
+                _isBusy = false;
+                yield break;
+            }
+
+            string responseJson = req.downloadHandler.text;
+            Debug.Log("[AI] VR Script Raw JSON:\n" + responseJson);
+            
+            // Nếu bạn cần parse JSON thành C# Object, hãy tạo các class tương ứng (như VrScriptResponse)
+            // và gọi: var scriptObj = JsonUtility.FromJson<VrScriptResponse>(responseJson);
+            
+            SetStatus("✅ Đã tạo kịch bản xong! (Xem Console)");
         }
 
         _isBusy = false;
@@ -376,4 +445,5 @@ public class AIAudioClient : MonoBehaviour
     [System.Serializable] private class ChatPayload  { public string message; }
     [System.Serializable] private class SttResponse  { public string text; }
     [System.Serializable] private class TtsPayload   { public string text; }
+    [System.Serializable] private class ScriptRequestPayload { public string message; public string job_title; public string interview_type; public string language; }
 }
