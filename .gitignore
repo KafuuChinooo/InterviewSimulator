@@ -102,5 +102,3 @@ InitTestScene*.unity*
 AI/venv/
 AI/.env
 AI/*.wav
-AI/*.onnx
-AI/*.json

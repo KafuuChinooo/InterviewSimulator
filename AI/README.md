@@ -22,8 +22,8 @@ This directory contains the Python-based AI services for the Interview Simulator
     ```
     You can use `.env.example` as a template.
 
-4.  **Download Models (if missing)**:
-    -   **Piper TTS**: Requires `en_GB-semaine-medium.onnx` and its `.json` config file in this directory.
+4.  **Models**:
+    -   **Piper TTS**: The `en_GB-semaine-medium.onnx` and its `.json` config file are already included in this directory.
     -   **Whisper STT**: The script is configured to use the `tiny` model, which will be downloaded automatically on the first run.
 
 ## Running the Server
