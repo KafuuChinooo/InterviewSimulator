@@ -4,6 +4,9 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
+  m_Scenes:
+  - enabled: 1
+    path: Assets/VrMode 1.unity
+    guid: 9a69f149a1bd2124f85cea15df21606f
   m_configObjects:
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 54fcabf5950f8154cbb3dfad010458f7, type: 2}
