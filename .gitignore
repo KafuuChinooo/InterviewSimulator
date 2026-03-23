@@ -102,3 +102,6 @@ InitTestScene*.unity*
 AI/venv/
 AI/.env
 AI/*.wav
+
+# Bỏ qua thư mục .AI
+.AI/

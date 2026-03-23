@@ -45,7 +45,7 @@ public class AIAudioClient : MonoBehaviour
     public Button readDefaultScriptButton;
     [Tooltip("Đoạn script mặc định để TTS đọc")]
     [TextArea(3, 5)]
-    public string defaultScript = "Xin chào, đây là đoạn văn bản được đọc tự động.";
+    public string defaultScript = "Hello, this is automatically generated text.";
 
     [Header("=== VR SCRIPT CONFIG ===")]
     [Tooltip("Vị trí công việc (VD: Data Analyst)")]
@@ -93,7 +93,7 @@ public class AIAudioClient : MonoBehaviour
 
         // Trạng thái ban đầu
         SetStopButtonInteractable(false);
-        SetStatus("Sẵn sàng.");
+        SetStatus("Ready.");
 
         // Kiểm tra và in danh sách microphone để dễ debug
         if (Microphone.devices.Length > 0) {
@@ -111,14 +111,14 @@ public class AIAudioClient : MonoBehaviour
     {
         if (_isBusy) return;
         string msg = textInput ? textInput.text.Trim() : "";
-        if (string.IsNullOrEmpty(msg)) { SetStatus("Vui lòng nhập câu hỏi."); return; }
+        if (string.IsNullOrEmpty(msg)) { SetStatus("Please enter a question."); return; }
         StartCoroutine(ChatVoiceCoroutine(msg));
     }
 
     public void OnReadDefaultScriptClicked()
     {
         if (_isBusy) return;
-        if (string.IsNullOrEmpty(defaultScript)) { SetStatus("Script mặc định đang trống."); return; }
+        if (string.IsNullOrEmpty(defaultScript)) { SetStatus("Default script is empty."); return; }
         StartCoroutine(ReadTextCoroutine(defaultScript));
     }
 
@@ -138,13 +138,13 @@ public class AIAudioClient : MonoBehaviour
 
         if (Microphone.devices.Length == 0)
         {
-            SetStatus("Lỗi: Không tìm thấy microphone!");
+            SetStatus("Error: No microphone found!");
             return;
         }
 
         _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
         _isRecording = true;
-        SetStatus("🔴 Đang ghi âm... (bấm Dừng khi xong)");
+        SetStatus("🔴 Recording... (Press Stop when done)");
         SetStartButtonInteractable(false);
         SetStopButtonInteractable(true);
     }
@@ -161,7 +161,7 @@ public class AIAudioClient : MonoBehaviour
 
         if (recordedSamples < 100)
         {
-            SetStatus("Ghi âm quá ngắn. Thử lại.");
+            SetStatus("Recording too short. Try again.");
             // Dọn dẹp clip ghi âm lỗi
             if (_recordingClip != null) Destroy(_recordingClip);
             return;
@@ -187,7 +187,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator SttThenChatCoroutine(AudioClip clip)
     {
         _isBusy = true;
-        SetStatus("⏳ Đang nhận dạng giọng nói...");
+        SetStatus("⏳ Recognizing speech...");
 
         byte[] wavBytes = AudioClipToWav(clip);
         string endpoint = serverUrl + "/api/stt";
@@ -201,7 +201,7 @@ public class AIAudioClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Lỗi STT: " + req.error);
+                SetStatus("STT Error: " + req.error);
                 Debug.LogError("[AI] STT error: " + req.error);
                 Debug.Log("[AI] Response Code: " + req.responseCode);
                 _isBusy = false;
@@ -215,13 +215,13 @@ public class AIAudioClient : MonoBehaviour
 
             if (string.IsNullOrEmpty(recognizedText))
             {
-                SetStatus("Không nhận dạng được giọng nói. Thử lại.");
+                SetStatus("Could not recognize speech. Try again.");
                 _isBusy = false;
                 yield break;
             }
 
-            if (transcriptLabel) transcriptLabel.text = "🗣 Bạn: " + recognizedText;
-            SetStatus("✅ Đã nhận dạng: " + recognizedText);
+            if (transcriptLabel) transcriptLabel.text = "🗣 You: " + recognizedText;
+            SetStatus("✅ Recognized: " + recognizedText);
             Debug.Log("[AI] Recognized: " + recognizedText);
 
             // Tiếp tục gửi lên AI
@@ -233,7 +233,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator ChatVoiceCoroutine(string message)
     {
         _isBusy = true;
-        SetStatus("🤖 AI đang xử lý...");
+        SetStatus("🤖 AI is processing...");
 
         string endpoint = serverUrl + "/api/chat_voice";
         string jsonBody = JsonUtility.ToJson(new ChatPayload { message = message });
@@ -249,7 +249,7 @@ public class AIAudioClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Lỗi kết nối: " + req.error);
+                SetStatus("Connection Error: " + req.error);
                 Debug.LogError("[AI] Chat error: " + req.error);
                 _isBusy = false;
                 yield break;
@@ -268,12 +268,12 @@ public class AIAudioClient : MonoBehaviour
 
                 audioSource.clip = aiClip;
                 audioSource.Play();
-                SetStatus("🔊 AI đang trả lời...");
+                SetStatus("🔊 AI is answering...");
                 Debug.Log("[AI] Playing response audio.");
             }
             else
             {
-                SetStatus("Lỗi: Không đọc được audio từ server.");
+                SetStatus("Error: Could not read audio from server.");
             }
         }
 
@@ -284,7 +284,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator GenerateVRScriptCoroutine()
     {
         _isBusy = true;
-        SetStatus("⏳ Đang tạo kịch bản VR...");
+        SetStatus("⏳ Generating VR script...");
 
         string endpoint = serverUrl + "/api/chat";
         string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
@@ -305,7 +305,7 @@ public class AIAudioClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Lỗi kết nối: " + req.error);
+                SetStatus("Connection Error: " + req.error);
                 Debug.LogError("[AI] Script error: " + req.error);
                 _isBusy = false;
                 yield break;
@@ -317,7 +317,7 @@ public class AIAudioClient : MonoBehaviour
             // Nếu bạn cần parse JSON thành C# Object, hãy tạo các class tương ứng (như VrScriptResponse)
             // và gọi: var scriptObj = JsonUtility.FromJson<VrScriptResponse>(responseJson);
             
-            SetStatus("✅ Đã tạo kịch bản xong! (Xem Console)");
+            SetStatus("✅ Script generated! (Check Console)");
         }
 
         _isBusy = false;
@@ -327,7 +327,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator ReadTextCoroutine(string text)
     {
         _isBusy = true;
-        SetStatus("⏳ Đang tạo giọng nói (TTS)...");
+        SetStatus("⏳ Generating voice (TTS)...");
 
         string endpoint = serverUrl + "/api/tts";
         string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text });
@@ -343,7 +343,7 @@ public class AIAudioClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Lỗi TTS: " + req.error);
+                SetStatus("TTS Error: " + req.error);
                 Debug.LogError("[AI] TTS error: " + req.error);
                 _isBusy = false;
                 yield break;
@@ -362,12 +362,12 @@ public class AIAudioClient : MonoBehaviour
 
                 audioSource.clip = aiClip;
                 audioSource.Play();
-                SetStatus("🔊 Đang đọc văn bản...");
+                SetStatus("🔊 Reading text...");
                 Debug.Log("[AI] Playing TTS audio.");
             }
             else
             {
-                SetStatus("Lỗi: Không đọc được audio từ server.");
+                SetStatus("Error: Could not read audio from server.");
             }
         }
 
