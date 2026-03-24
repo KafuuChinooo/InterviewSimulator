@@ -686,7 +686,31 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 175897615}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1698216205}
+        m_TargetAssemblyTypeName: AIAudioClient, Assembly-CSharp
+        m_MethodName: SetTypeRoleSpecific
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 341152587}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
+        m_MethodName: NextScreen
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &175897615
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1290,6 +1314,17 @@ MonoBehaviour:
   generateScriptButton: {fileID: 0}
   statusLabel: {fileID: 0}
   transcriptLabel: {fileID: 0}
+  greetingTextUI: {fileID: 0}
+  englishGreeting: Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be
+    your interviewer for today's session. This is a safe space for you to practice
+    and get comfortable with interviews. Just relax and do your best. Let's get started!
+  vietnameseGreeting: "Ch\xE0o b\u1EA1n, ch\xE0o m\u1EEBng \u0111\u1EBFn v\u1EDBi
+    VirtuHire! T\xF4i t\xEAn l\xE0 Ph\u01B0\u01A1ng H\u1EB1ng. T\xF4i s\u1EBD l\xE0
+    ng\u01B0\u1EDDi ph\u1ECFng v\u1EA5n b\u1EA1n trong bu\u1ED5i h\xF4m nay. \u0110\xE2y
+    l\xE0 m\u1ED9t kh\xF4ng gian an to\xE0n \u0111\u1EC3 b\u1EA1n luy\u1EC7n t\u1EADp
+    v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
+    th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
+    b\u1EAFt \u0111\u1EA7u n\xE0o!"
 --- !u!1 &341152586
 GameObject:
   m_ObjectHideFlags: 0
@@ -2130,7 +2165,19 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 341152587}
         m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
-        m_MethodName: PreviousScreen
+        m_MethodName: NextScreen
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 1698216205}
+        m_TargetAssemblyTypeName: AIAudioClient, Assembly-CSharp
+        m_MethodName: SetTypeAttitude
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -4250,10 +4297,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Hi there, welcome to VirtuHire!\nMy name is Ph\u01B0\u01A1ng H\u1EB1ng.
-    I\u2019ll be your interviewer for today\u2019s session. This is a safe space
-    for you to practice and get comfortable with interviews. Just relax and do your
-    best. Let\u2019s get started!"
+  m_text: 
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 5302535af1044152a457ed104f1f4b91, type: 2}
   m_sharedMaterial: {fileID: 2164040, guid: 5302535af1044152a457ed104f1f4b91, type: 2}
@@ -7511,6 +7555,18 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+      - m_Target: {fileID: 1698216205}
+        m_TargetAssemblyTypeName: AIAudioClient, Assembly-CSharp
+        m_MethodName: PlayGreeting
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1257847479
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8603,7 +8659,31 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1465155710}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1698216205}
+        m_TargetAssemblyTypeName: AIAudioClient, Assembly-CSharp
+        m_MethodName: SetLanguageEnglish
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 341152587}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
+        m_MethodName: NextScreen
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1465155710
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9950,7 +10030,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1659792791
 RectTransform:
   m_ObjectHideFlags: 0
@@ -10104,6 +10184,101 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1698216204
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1698216206}
+  - component: {fileID: 1698216205}
+  - component: {fileID: 1698216207}
+  m_Layer: 0
+  m_Name: AIManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1698216205
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1698216204}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85a8f40cfa2a4e241a55498d07ed573a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  serverUrl: http://127.0.0.1:8000
+  audioSource: {fileID: 0}
+  textInput: {fileID: 0}
+  sendTextButton: {fileID: 0}
+  startRecordButton: {fileID: 0}
+  stopSendButton: {fileID: 0}
+  maxRecordSeconds: 10
+  readDefaultScriptButton: {fileID: 0}
+  defaultScript: Hello, this is automatically generated text.
+  jobTitle: Data Analyst
+  interviewType: Attitude Interview
+  language: Vietnamese
+  generateScriptButton: {fileID: 0}
+  statusLabel: {fileID: 0}
+  transcriptLabel: {fileID: 0}
+  greetingTextUI: {fileID: 816614197}
+  englishGreeting: Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be
+    your interviewer for today's session. This is a safe space for you to practice
+    and get comfortable with interviews. Just relax and do your best. Let's get started!
+  vietnameseGreeting: "Ch\xE0o b\u1EA1n, ch\xE0o m\u1EEBng \u0111\u1EBFn v\u1EDBi
+    VirtuHire! T\xF4i t\xEAn l\xE0 Ph\u01B0\u01A1ng H\u1EB1ng. T\xF4i s\u1EBD l\xE0
+    ng\u01B0\u1EDDi ph\u1ECFng v\u1EA5n b\u1EA1n trong bu\u1ED5i h\xF4m nay. \u0110\xE2y
+    l\xE0 m\u1ED9t kh\xF4ng gian an to\xE0n \u0111\u1EC3 b\u1EA1n luy\u1EC7n t\u1EADp
+    v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
+    th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
+    b\u1EAFt \u0111\u1EA7u n\xE0o!"
+--- !u!4 &1698216206
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1698216204}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -5.4672956, y: 1.1815348, z: 3.5998874}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1698216207
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1698216204}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0effef2568ab8094aa62b245740dcdaa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  greetingText: {fileID: 0}
+  aiAudioClient: {fileID: 0}
+  englishGreeting: Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be
+    your interviewer for today's session. This is a safe space for you to practice
+    and get comfortable with interviews. Just relax and do your best. Let's get started!
+  vietnameseGreeting: "Ch\xE0o b\u1EA1n, ch\xE0o m\u1EEBng \u0111\u1EBFn v\u1EDBi
+    VirtuHire! T\xF4i t\xEAn l\xE0 Ph\u01B0\u01A1ng H\u1EB1ng. T\xF4i s\u1EBD l\xE0
+    ng\u01B0\u1EDDi ph\u1ECFng v\u1EA5n b\u1EA1n trong bu\u1ED5i h\xF4m nay. \u0110\xE2y
+    l\xE0 m\u1ED9t kh\xF4ng gian an to\xE0n \u0111\u1EC3 b\u1EA1n luy\u1EC7n t\u1EADp
+    v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
+    th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
+    b\u1EAFt \u0111\u1EA7u n\xE0o!"
 --- !u!1 &1735207795
 GameObject:
   m_ObjectHideFlags: 0
@@ -10921,7 +11096,31 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1895273849}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1698216205}
+        m_TargetAssemblyTypeName: AIAudioClient, Assembly-CSharp
+        m_MethodName: SetLanguageVietnamese
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 341152587}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
+        m_MethodName: NextScreen
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1895273849
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -34482,3 +34681,4 @@ SceneRoots:
   - {fileID: 1682131290}
   - {fileID: 1583865462}
   - {fileID: 341152588}
+  - {fileID: 1698216206}

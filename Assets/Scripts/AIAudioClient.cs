@@ -63,6 +63,14 @@ public class AIAudioClient : MonoBehaviour
     [Tooltip("Label hiển thị text đã nhận dạng từ giọng nói")]
     public TMP_Text transcriptLabel;
 
+    [Header("=== GREETING SCRIPT ===")]
+    [Tooltip("Gắn UI Text chứa lời chào vào đây")]
+    public TMP_Text greetingTextUI;
+    [TextArea(3, 5)]
+    public string englishGreeting = "Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be your interviewer for today's session. This is a safe space for you to practice and get comfortable with interviews. Just relax and do your best. Let's get started!";
+    [TextArea(3, 5)]
+    public string vietnameseGreeting = "Chào bạn, chào mừng đến với VirtuHire! Tôi tên là Phương Hằng. Tôi sẽ là người phỏng vấn bạn trong buổi hôm nay. Đây là một không gian an toàn để bạn luyện tập và làm quen với các cuộc phỏng vấn. Hãy cứ thư giãn và thể hiện hết mình nhé. Chúng ta bắt đầu nào!";
+
     // --- Private state ---
     private AudioClip _recordingClip;
     private bool _isRecording = false;
@@ -126,6 +134,50 @@ public class AIAudioClient : MonoBehaviour
     {
         if (_isBusy) return;
         StartCoroutine(GenerateVRScriptCoroutine());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // UI SETTERS FOR VR CONFIG
+    // ─────────────────────────────────────────────────────────────
+
+    public void SetLanguageVietnamese()
+    {
+        language = "Vietnamese";
+        Debug.Log("[AI] Language set to: Vietnamese");
+    }
+
+    public void SetLanguageEnglish()
+    {
+        language = "English";
+        Debug.Log("[AI] Language set to: English");
+    }
+
+    public void SetTypeAttitude()
+    {
+        interviewType = "Attitude Interview";
+        Debug.Log("[AI] Interview Type set to: Attitude Interview");
+    }
+
+    public void SetTypeRoleSpecific()
+    {
+        interviewType = "Role-Specific Interview";
+        Debug.Log("[AI] Interview Type set to: Role-Specific Interview");
+    }
+
+    /// <summary>
+    /// Phát âm thanh lời chào theo ngôn ngữ đã đặt. Gắn vào sự kiện OnClick() của nút Next.
+    /// </summary>
+    public void PlayGreeting()
+    {
+        string textToPlay = (language == "English") ? englishGreeting : vietnameseGreeting;
+        
+        if (greetingTextUI != null)
+        {
+            greetingTextUI.text = textToPlay;
+        }
+
+        Debug.Log($"[AI] Playing greeting in {language}...");
+        SpeakText(textToPlay);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -236,7 +288,13 @@ public class AIAudioClient : MonoBehaviour
         SetStatus("🤖 AI is processing...");
 
         string endpoint = serverUrl + "/api/chat_voice";
-        string jsonBody = JsonUtility.ToJson(new ChatPayload { message = message });
+        string jsonBody = JsonUtility.ToJson(new ChatPayload 
+        { 
+            message = message,
+            job_title = jobTitle,
+            interview_type = interviewType,
+            language = language
+        });
         byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
 
         using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
@@ -324,13 +382,19 @@ public class AIAudioClient : MonoBehaviour
     }
 
     /// <summary>Gửi text trực tiếp lên /api/tts → nhận WAV → phát</summary>
+    public void SpeakText(string text)
+    {
+        if (_isBusy) return;
+        StartCoroutine(ReadTextCoroutine(text));
+    }
+
     private IEnumerator ReadTextCoroutine(string text)
     {
         _isBusy = true;
         SetStatus("⏳ Generating voice (TTS)...");
 
         string endpoint = serverUrl + "/api/tts";
-        string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text });
+        string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text, language = this.language });
         byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
 
         using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
@@ -442,8 +506,21 @@ public class AIAudioClient : MonoBehaviour
     // ─────────────────────────────────────────────────────────────
     // JSON Models
     // ─────────────────────────────────────────────────────────────
-    [System.Serializable] private class ChatPayload  { public string message; }
+    [System.Serializable] private class ChatPayload  { 
+        public string message; 
+        public string job_title;
+        public string interview_type;
+        public string language;
+    }
     [System.Serializable] private class SttResponse  { public string text; }
-    [System.Serializable] private class TtsPayload   { public string text; }
-    [System.Serializable] private class ScriptRequestPayload { public string message; public string job_title; public string interview_type; public string language; }
+    [System.Serializable] private class TtsPayload   { 
+        public string text; 
+        public string language;
+    }
+    [System.Serializable] private class ScriptRequestPayload { 
+        public string message; 
+        public string job_title; 
+        public string interview_type; 
+        public string language; 
+    }
 }
