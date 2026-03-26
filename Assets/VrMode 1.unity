@@ -2066,8 +2066,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fb0fad8e3b2754aaeb18724ea18d2a3e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  InactiveMaterial: {fileID: 2100000, guid: b5f3136c0efcb40b18050a014202c92c, type: 2}
-  GazedAtMaterial: {fileID: 2100000, guid: 98e1ed660e0a3453494d31d659d7388c, type: 2}
 --- !u!135 &148680889
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -5044,7 +5042,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &409811185
 RectTransform:
   m_ObjectHideFlags: 0
@@ -9930,7 +9928,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 823795391}
   m_LocalRotation: {x: -0, y: 0.70664763, z: -0, w: 0.70756567}
-  m_LocalPosition: {x: 0, y: 0, z: -0.01}
+  m_LocalPosition: {x: 0, y: 0, z: 3.634}
   m_LocalScale: {x: 0.0043404005, y: 0.002, z: 0.002}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -9945,7 +9943,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 89.926, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 8.315, y: 1.516}
+  m_AnchoredPosition: {x: 3.857, y: 1.96}
   m_SizeDelta: {x: 482.0332, y: 198.5}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &825061158
@@ -11974,79 +11972,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2fadf230d1919748a9aa21d40f74619, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_TrackingType: 0
-  m_UpdateType: 2
-  m_IgnoreTrackingState: 0
-  m_PositionInput:
-    m_UseReference: 0
-    m_Action:
-      m_Name: Position Input
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: 75bd6437-515a-4393-bf65-17471f2aa5d7
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings:
-      - m_Name: 
-        m_Id: 35b2bfdf-828d-42b5-8429-9705dccbd998
-        m_Path: <XRHMD>/centerEyePosition
-        m_Interactions: 
-        m_Processors: 
-        m_Groups: 
-        m_Action: Position Input
-        m_Flags: 0
-      m_Flags: 0
-    m_Reference: {fileID: 0}
-  m_RotationInput:
-    m_UseReference: 0
-    m_Action:
-      m_Name: Rotation Input
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: d99c5ee8-4740-48f1-95b5-8efa67741e1a
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings:
-      - m_Name: 
-        m_Id: a76d4483-d120-46e8-b854-93d3f9f46c60
-        m_Path: <XRHMD>/centerEyeRotation
-        m_Interactions: 
-        m_Processors: 
-        m_Groups: 
-        m_Action: Rotation Input
-        m_Flags: 0
-      m_Flags: 0
-    m_Reference: {fileID: -5630151704836100654, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_TrackingStateInput:
-    m_UseReference: 0
-    m_Action:
-      m_Name: Tracking State Input
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: 7a35e2c9-9f8c-49e4-91b2-da9856051fc3
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings: []
-      m_Flags: 0
-    m_Reference: {fileID: 0}
-  m_PositionAction:
-    m_Name: 
-    m_Type: 0
-    m_ExpectedControlType: 
-    m_Id: 
-    m_Processors: 
-    m_Interactions: 
-    m_SingletonActionBindings: []
-    m_Flags: 0
-  m_RotationAction:
-    m_Name: 
-    m_Type: 0
-    m_ExpectedControlType: 
-    m_Id: 
-    m_Processors: 
-    m_Interactions: 
-    m_SingletonActionBindings: []
-    m_Flags: 0
 --- !u!114 &959308595
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -12060,6 +11985,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   sensitivity: 2
+  gazeTime: 3
 --- !u!1 &976298410
 GameObject:
   m_ObjectHideFlags: 0
@@ -18682,8 +18608,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fb0fad8e3b2754aaeb18724ea18d2a3e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  InactiveMaterial: {fileID: 2100000, guid: 026c99290ad2d42e98195d21d1c5a21d, type: 2}
-  GazedAtMaterial: {fileID: 2100000, guid: 4cc7d26a25d984c5b876a1faafcf6235, type: 2}
 --- !u!135 &1490385954
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -21383,18 +21307,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0effef2568ab8094aa62b245740dcdaa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  greetingText: {fileID: 0}
-  aiAudioClient: {fileID: 0}
-  englishGreeting: Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be
-    your interviewer for today's session. This is a safe space for you to practice
-    and get comfortable with interviews. Just relax and do your best. Let's get started!
-  vietnameseGreeting: "Ch\xE0o b\u1EA1n, ch\xE0o m\u1EEBng \u0111\u1EBFn v\u1EDBi
-    VirtuHire! T\xF4i t\xEAn l\xE0 Ph\u01B0\u01A1ng H\u1EB1ng. T\xF4i s\u1EBD l\xE0
-    ng\u01B0\u1EDDi ph\u1ECFng v\u1EA5n b\u1EA1n trong bu\u1ED5i h\xF4m nay. \u0110\xE2y
-    l\xE0 m\u1ED9t kh\xF4ng gian an to\xE0n \u0111\u1EC3 b\u1EA1n luy\u1EC7n t\u1EADp
-    v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
-    th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
-    b\u1EAFt \u0111\u1EA7u n\xE0o!"
 --- !u!1 &1714098863
 GameObject:
   m_ObjectHideFlags: 0
@@ -25974,24 +25886,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 01614664b831546d2ae94a42149d80ac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_SendPointerHoverToParent: 1
-  m_MoveRepeatDelay: 0.5
-  m_MoveRepeatRate: 0.1
-  m_XRTrackingOrigin: {fileID: 0}
-  m_ActionsAsset: {fileID: -944628639613478452, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_PointAction: {fileID: -1654692200621890270, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_MoveAction: {fileID: -8784545083839296357, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_SubmitAction: {fileID: 392368643174621059, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_CancelAction: {fileID: 7727032971491509709, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_LeftClickAction: {fileID: 3001919216989983466, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_MiddleClickAction: {fileID: -2185481485913320682, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_RightClickAction: {fileID: -4090225696740746782, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_ScrollWheelAction: {fileID: 6240969308177333660, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_TrackedDevicePositionAction: {fileID: 6564999863303420839, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_TrackedDeviceOrientationAction: {fileID: 7970375526676320489, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
-  m_DeselectOnBackgroundClick: 1
-  m_PointerBehavior: 0
-  m_CursorLockBehavior: 0
 --- !u!1 &2074714521
 GameObject:
   m_ObjectHideFlags: 0
