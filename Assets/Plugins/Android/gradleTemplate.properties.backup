@@ -1,6 +1,0 @@
-org.gradle.jvmargs=-Xmx**MINIMAL_ALLOCATION**M
-org.gradle.parallel=true
-android.enableR8=**MINIFY_WITH_R_EIGHT**
-unityTemplateVersion=**TEMPLATE_VERSION**
-**ADDITIONAL_PROPERTIES**
-android.enableDexingArtifactTransform.desugaring=false
