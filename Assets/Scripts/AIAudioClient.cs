@@ -21,7 +21,9 @@ public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
     [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
-    public string serverUrl = "http://192.168.1.3:8000";
+    public string serverUrl = "http://127.0.0.1:8000";
+    [Tooltip("Session id gui sang backend. Neu de trong se tu sinh.")]
+    public string sessionId = "";
 
     [Header("=== AUDIO ===")]
     [Tooltip("AudioSource để phát câu trả lời của AI")]
@@ -80,12 +82,36 @@ public class AIAudioClient : MonoBehaviour
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
 
+    private bool UseSingleRecordButton
+    {
+        get
+        {
+            if (startRecordButton != null && stopSendButton != null)
+            {
+                return startRecordButton == stopSendButton;
+            }
+
+            return startRecordButton != null || stopSendButton != null;
+        }
+    }
+
+    private Button ActiveRecordButton
+    {
+        get
+        {
+            if (startRecordButton != null) return startRecordButton;
+            return stopSendButton;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Unity Lifecycle
     // ─────────────────────────────────────────────────────────────
 
     private void Start()
     {
+        EnsureSessionId();
+
         // Tự thêm AudioSource nếu chưa có
         if (audioSource == null)
         {
@@ -98,13 +124,12 @@ public class AIAudioClient : MonoBehaviour
 
         // Gắn sự kiện cho các button
         if (sendTextButton)   sendTextButton.onClick.AddListener(OnSendTextClicked);
-        if (startRecordButton) startRecordButton.onClick.AddListener(OnStartRecordClicked);
-        if (stopSendButton)   stopSendButton.onClick.AddListener(OnStopAndSendClicked);
+        BindRecordButtons();
         if (readDefaultScriptButton) readDefaultScriptButton.onClick.AddListener(OnReadDefaultScriptClicked);
         if (generateScriptButton) generateScriptButton.onClick.AddListener(OnGenerateScriptClicked);
 
         // Trạng thái ban đầu
-        SetStopButtonInteractable(false);
+        RefreshRecordButtons();
         SetStatus("Ready.");
 
         // Kiểm tra và in danh sách microphone để dễ debug
@@ -176,6 +201,15 @@ public class AIAudioClient : MonoBehaviour
         StartCoroutine(GenerateVRScriptCoroutine());
     }
 
+    public void AskOpeningQuestion()
+    {
+        if (_isBusy) return;
+
+        string openingPrompt =
+            "Start the interview now. Give one short opening line, then ask the first interview question for the candidate based on the selected role and interview type.";
+        StartCoroutine(ChatVoiceCoroutine(openingPrompt));
+    }
+
     // ─────────────────────────────────────────────────────────────
     // UI SETTERS FOR VR CONFIG
     // ─────────────────────────────────────────────────────────────
@@ -202,6 +236,12 @@ public class AIAudioClient : MonoBehaviour
     {
         interviewType = "Role-Specific Interview";
         Debug.Log("[AI] Interview Type set to: Role-Specific Interview");
+    }
+
+    public void SetJobTitle(string value)
+    {
+        jobTitle = string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim();
+        Debug.Log("[AI] Job Title set to: " + jobTitle);
     }
 
     /// <summary>
@@ -253,8 +293,7 @@ public class AIAudioClient : MonoBehaviour
         _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
         _isRecording = true;
         SetStatus("🔴 Recording... (Press Stop when done)");
-        SetStartButtonInteractable(false);
-        SetStopButtonInteractable(true);
+        RefreshRecordButtons();
     }
 
     public void OnStopAndSendClicked()
@@ -264,8 +303,7 @@ public class AIAudioClient : MonoBehaviour
         int recordedSamples = Microphone.GetPosition(null);
         Microphone.End(null);
         _isRecording = false;
-        SetStopButtonInteractable(false);
-        SetStartButtonInteractable(true);
+        RefreshRecordButtons();
 
         if (recordedSamples < 100)
         {
@@ -315,6 +353,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator SttThenChatCoroutine(AudioClip clip)
     {
         _isBusy = true;
+        RefreshRecordButtons();
         SetStatus("⏳ Recognizing speech...");
 
         byte[] wavBytes = AudioClipToWav(clip);
@@ -322,6 +361,10 @@ public class AIAudioClient : MonoBehaviour
 
         WWWForm form = new WWWForm();
         form.AddBinaryData("audio", wavBytes, "recording.wav", "audio/wav");
+        form.AddField("session_id", sessionId);
+        form.AddField("job_title", jobTitle);
+        form.AddField("interview_type", interviewType);
+        form.AddField("language", language);
 
         using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
         {
@@ -333,6 +376,7 @@ public class AIAudioClient : MonoBehaviour
                 Debug.LogError("[AI] STT error: " + req.error);
                 Debug.Log("[AI] Response Code: " + req.responseCode);
                 _isBusy = false;
+                RefreshRecordButtons();
                 yield break;
             }
 
@@ -345,6 +389,7 @@ public class AIAudioClient : MonoBehaviour
             {
                 SetStatus("Could not recognize speech. Try again.");
                 _isBusy = false;
+                RefreshRecordButtons();
                 yield break;
             }
 
@@ -361,11 +406,13 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator ChatVoiceCoroutine(string message)
     {
         _isBusy = true;
+        RefreshRecordButtons();
         SetStatus("🤖 AI is processing...");
 
         string endpoint = serverUrl + "/api/chat_voice";
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
         { 
+            session_id = sessionId,
             message = message,
             job_title = jobTitle,
             interview_type = interviewType,
@@ -386,6 +433,7 @@ public class AIAudioClient : MonoBehaviour
                 SetStatus("Connection Error: " + req.error);
                 Debug.LogError("[AI] Chat error: " + req.error);
                 _isBusy = false;
+                RefreshRecordButtons();
                 yield break;
             }
 
@@ -412,16 +460,19 @@ public class AIAudioClient : MonoBehaviour
         }
 
         _isBusy = false;
+        RefreshRecordButtons();
     }
 
     /// <summary>Gọi API sinh kịch bản VR JSON (không sinh audio)</summary>
     private IEnumerator GenerateVRScriptCoroutine()
     {
         _isBusy = true;
+        RefreshRecordButtons();
         SetStatus("⏳ Generating VR script...");
 
         string endpoint = serverUrl + "/api/chat";
         string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
+            session_id = sessionId,
             message = "Generate interview script",
             job_title = jobTitle,
             interview_type = interviewType,
@@ -442,6 +493,7 @@ public class AIAudioClient : MonoBehaviour
                 SetStatus("Connection Error: " + req.error);
                 Debug.LogError("[AI] Script error: " + req.error);
                 _isBusy = false;
+                RefreshRecordButtons();
                 yield break;
             }
 
@@ -455,6 +507,7 @@ public class AIAudioClient : MonoBehaviour
         }
 
         _isBusy = false;
+        RefreshRecordButtons();
     }
 
     /// <summary>Gửi text trực tiếp lên /api/tts → nhận WAV → phát</summary>
@@ -467,10 +520,15 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator ReadTextCoroutine(string text)
     {
         _isBusy = true;
+        RefreshRecordButtons();
         SetStatus("⏳ Generating voice (TTS)...");
 
         string endpoint = serverUrl + "/api/tts";
-        string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text, language = this.language });
+        string jsonBody = JsonUtility.ToJson(new TtsPayload {
+            session_id = sessionId,
+            text = text,
+            language = this.language
+        });
         byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
 
         using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
@@ -486,6 +544,7 @@ public class AIAudioClient : MonoBehaviour
                 SetStatus("TTS Error: " + req.error);
                 Debug.LogError("[AI] TTS error: " + req.error);
                 _isBusy = false;
+                RefreshRecordButtons();
                 yield break;
             }
 
@@ -512,6 +571,7 @@ public class AIAudioClient : MonoBehaviour
         }
 
         _isBusy = false;
+        RefreshRecordButtons();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -522,6 +582,14 @@ public class AIAudioClient : MonoBehaviour
     {
         if (statusLabel) statusLabel.text = msg;
         Debug.Log("[AI] " + msg);
+    }
+
+    private void EnsureSessionId()
+    {
+        if (!string.IsNullOrWhiteSpace(sessionId)) return;
+
+        sessionId = "unity-" + System.Guid.NewGuid().ToString("N");
+        Debug.Log("[AI] Generated session id: " + sessionId);
     }
 
     private void SetStartButtonInteractable(bool v)
@@ -537,6 +605,32 @@ public class AIAudioClient : MonoBehaviour
     // ─────────────────────────────────────────────────────────────
     // AudioClip → WAV bytes (PCM 16-bit)
     // ─────────────────────────────────────────────────────────────
+
+    private void BindRecordButtons()
+    {
+        if (UseSingleRecordButton)
+        {
+            Button recordButton = ActiveRecordButton;
+            if (recordButton) recordButton.onClick.AddListener(ToggleRecord);
+            return;
+        }
+
+        if (startRecordButton) startRecordButton.onClick.AddListener(OnStartRecordClicked);
+        if (stopSendButton) stopSendButton.onClick.AddListener(OnStopAndSendClicked);
+    }
+
+    private void RefreshRecordButtons()
+    {
+        if (UseSingleRecordButton)
+        {
+            Button recordButton = ActiveRecordButton;
+            if (recordButton) recordButton.interactable = !_isBusy;
+            return;
+        }
+
+        SetStartButtonInteractable(!_isBusy && !_isRecording);
+        SetStopButtonInteractable(!_isBusy && _isRecording);
+    }
 
     private static byte[] AudioClipToWav(AudioClip clip)
     {
@@ -583,6 +677,7 @@ public class AIAudioClient : MonoBehaviour
     // JSON Models
     // ─────────────────────────────────────────────────────────────
     [System.Serializable] private class ChatPayload  { 
+        public string session_id;
         public string message; 
         public string job_title;
         public string interview_type;
@@ -590,10 +685,12 @@ public class AIAudioClient : MonoBehaviour
     }
     [System.Serializable] private class SttResponse  { public string text; }
     [System.Serializable] private class TtsPayload   { 
+        public string session_id;
         public string text; 
         public string language;
     }
     [System.Serializable] private class ScriptRequestPayload { 
+        public string session_id;
         public string message; 
         public string job_title; 
         public string interview_type; 

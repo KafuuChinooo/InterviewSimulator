@@ -13,18 +13,30 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI getReadyPositionTextEng;
     [Tooltip("Kéo chữ hiển thị chức vụ ở Trang 5 của tiếng Việt vào đây")]
     public TextMeshProUGUI getReadyPositionTextViet;
+    [Tooltip("Tham chieu toi AIAudioClient de dong bo language/job title")]
+    public AIAudioClient aiAudioClient;
 
     [Header("Kéo thả các màn hình (Trang) vào đây theo thứ tự (VD: Trang 1 -> Trang 5)")]
     public GameObject[] screens;
 
     [Header("Chỉ số màn hình bắt đầu (Mặc định là 0 - Trang 1)")]
     public int currentScreenIndex = 0;
+    [Header("Tu dong bat dau phong van")]
+    [Tooltip("Screen index se lam AI chu dong hoi cau dau tien. Screen 6 = index 5")]
+    public int autoAskScreenIndex = 5;
 
     void Start()
     {
+        if (aiAudioClient == null)
+        {
+            aiAudioClient = FindObjectOfType<AIAudioClient>();
+        }
+
         // Khi game bắt đầu, hệ thống sẽ tự động cập nhật hiển thị, 
         // chỉ bật màn hình ở vị trí currentScreenIndex, còn lại tắt hết
         UpdateScreenVisibility();
+        SyncAIAudioClient();
+        HandleScreenEntered();
     }
 
     // === HÀM DỌN DẸP TUYỆT ĐỐI (KHÔNG CẦN ARRAY) ===
@@ -61,6 +73,8 @@ public class UIManager : MonoBehaviour
             currentScreenIndex++;
             if (screens[currentScreenIndex] != null)
                 screens[currentScreenIndex].SetActive(true);
+
+            HandleScreenEntered();
         }
     }
 
@@ -73,6 +87,8 @@ public class UIManager : MonoBehaviour
             currentScreenIndex--;
             if (screens[currentScreenIndex] != null)
                 screens[currentScreenIndex].SetActive(true);
+
+            HandleScreenEntered();
         }
     }
 
@@ -94,12 +110,14 @@ public class UIManager : MonoBehaviour
     public void SelectEnglish()
     {
         currentLanguage = "Eng";
+        if (aiAudioClient != null) aiAudioClient.SetLanguageEnglish();
         Debug.Log("[UIManager] Đã đổi hệ thống sang Tiếng Anh.");
     }
 
     public void SelectVietnamese()
     {
         currentLanguage = "Viet";
+        if (aiAudioClient != null) aiAudioClient.SetLanguageVietnamese();
         Debug.Log("[UIManager] Đã đổi hệ thống sang Tiếng Việt.");
     }
 
@@ -112,6 +130,20 @@ public class UIManager : MonoBehaviour
         if (screenToOpen != null)
         {
             screenToOpen.SetActive(true);
+
+            if (screens != null)
+            {
+                for (int i = 0; i < screens.Length; i++)
+                {
+                    if (screens[i] == screenToOpen)
+                    {
+                        currentScreenIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            HandleScreenEntered();
         }
     }
 
@@ -119,6 +151,7 @@ public class UIManager : MonoBehaviour
     public void SelectPosition(string positionName)
     {
         selectedPosition = positionName;
+        if (aiAudioClient != null) aiAudioClient.SetJobTitle(positionName);
         Debug.Log("[UIManager] Chức vụ đã chọn: " + selectedPosition);
 
         // Hiển thị vị trí lên UI ở Màn 5 nếu có 
@@ -128,5 +161,26 @@ public class UIManager : MonoBehaviour
         
         if (getReadyPositionTextViet != null) 
             getReadyPositionTextViet.text = "Vị trí: " + selectedPosition;
+    }
+
+    private void SyncAIAudioClient()
+    {
+        if (aiAudioClient == null) return;
+
+        if (currentLanguage == "Viet") aiAudioClient.SetLanguageVietnamese();
+        else aiAudioClient.SetLanguageEnglish();
+
+        if (!string.IsNullOrWhiteSpace(selectedPosition))
+        {
+            aiAudioClient.SetJobTitle(selectedPosition);
+        }
+    }
+
+    private void HandleScreenEntered()
+    {
+        if (aiAudioClient == null) return;
+        if (currentScreenIndex != autoAskScreenIndex) return;
+
+        aiAudioClient.AskOpeningQuestion();
     }
 }

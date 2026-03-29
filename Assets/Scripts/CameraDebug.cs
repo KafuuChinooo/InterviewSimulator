@@ -12,7 +12,7 @@ public class CameraDebug : MonoBehaviour
 
     [Header("Gaze Interaction")]
     [Tooltip("Thời gian nhìn vào nút để thực hiện nhấn (tính bằng giây)")]
-    public float gazeTime = 3f;
+    public float gazeTime = 2f;
     private float gazeTimer = 0f;
     private GameObject currentTarget;
 
@@ -26,7 +26,7 @@ public class CameraDebug : MonoBehaviour
             transform.eulerAngles = new Vector3(pitch, yaw, 0f);
         }
 
-        // 2. Logic kiểm tra và nhấn nút nếu nhìn đủ 3 giây
+        // 2. Logic kiểm tra và nhấn nút nếu nhìn đủ 2 giây
         CheckGazeClick();
     }
 
@@ -108,7 +108,7 @@ public class CameraDebug : MonoBehaviour
 
                 if (gazeTimer >= gazeTime)
                 {
-                    // Đã nhìn đủ 3 giây -> Thực hiện lệnh nhấn (Click)
+                    // Đã nhìn đủ 2 giây -> Thực hiện lệnh nhấn (Click)
                     pointerData.button = PointerEventData.InputButton.Left;
 
                     // Nếu target (hoặc cha của nó) có component Button, invoke trực tiếp để đảm bảo OnClick chạy

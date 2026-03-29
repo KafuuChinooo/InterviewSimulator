@@ -23,13 +23,15 @@ public class GazeAndControllerMic : MonoBehaviour
     public Camera vrCamera;
 
     [Tooltip("Thời gian (giây) nhìn liên tục vào mic để kích hoạt")]
-    public float gazeTriggerTime = 3f;
+    public float gazeTriggerTime = 2f;
 
     [Tooltip("Thời gian (giây) ghi âm sau khi kích hoạt")]
     public float recordDuration = 3f;
 
     [Tooltip("KeyCode nút controller để kích hoạt (một lần) - mặc định JoystickButton0")]
     public KeyCode controllerButton = KeyCode.JoystickButton0;
+    [Tooltip("Phim ban phim de test bat/tat ghi am trong editor")]
+    public KeyCode keyboardToggleKey = KeyCode.P;
 
     [Tooltip("Layer mask cho Physics.Raycast (nếu mic là đối tượng 3D có Collider)")]
     public LayerMask physicsLayerMask = Physics.DefaultRaycastLayers;
@@ -100,9 +102,14 @@ public class GazeAndControllerMic : MonoBehaviour
 
     void Update()
     {
-        if (aiAudioClient == null || micTarget == null) return;
+        if (aiAudioClient == null) return;
 
         // Controller press: nhấn để bắt đầu ghi âm trong recordDuration giây
+        if (Input.GetKeyDown(keyboardToggleKey))
+        {
+            aiAudioClient.ToggleRecord();
+        }
+
         if (Input.GetKeyDown(controllerButton))
         {
             if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
@@ -114,6 +121,8 @@ public class GazeAndControllerMic : MonoBehaviour
                 aiAudioClient.OnStopAndSendClicked();
             }
         }
+
+        if (micTarget == null) return;
 
         // Gaze detection
         bool looking = IsLookingAtTarget();
