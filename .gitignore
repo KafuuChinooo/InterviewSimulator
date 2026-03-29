@@ -98,10 +98,8 @@ InitTestScene*.unity*
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
-# AI Module
-AI/venv/
-AI/.env
-AI/*.wav
-
-# Bỏ qua thư mục .AI
-.AI/
+# Thư mục .AI 
+# Bỏ qua các thư mục chứa dữ liệu cá nhân
+.AI/satone/
+.AI/LiveAPI/
+.AI/[Ll]ive[Aa][Pp][Ii]/

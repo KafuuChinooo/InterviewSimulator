@@ -1,88 +1,66 @@
+using System;
 using System.Collections;
-using System.Text;
 using System.IO;
+using System.Text;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
-using TMPro;
 
-/// <summary>
-/// AI Voice Assistant Client cho Unity.
-/// Hỗ trợ 2 chế độ: gõ text hoặc ghi âm giọng nói.
-/// 
-/// === SETUP GUIDE ===
-/// 1. Tạo một GameObject (ví dụ: "AIManager")
-/// 2. Gắn script này vào GameObject đó
-/// 3. Kéo các UI element vào các slot trong Inspector (xem bên dưới)
-/// 4. Đảm bảo FastAPI server đang chạy: python main.py
-/// </summary>
 public class AIAudioClient : MonoBehaviour
 {
-    [Header("=== SERVER ===")]
-    [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
+    [Header("Server")]
     public string serverUrl = "http://127.0.0.1:8000";
 
-    [Header("=== AUDIO ===")]
-    [Tooltip("AudioSource để phát câu trả lời của AI")]
+    [Header("Session")]
+    public string sessionId = "";
+
+    [Header("Audio")]
     public AudioSource audioSource;
-
-    [Header("=== TEXT MODE UI ===")]
-    [Tooltip("InputField để gõ câu hỏi (TMP_InputField)")]
-    public TMP_InputField textInput;
-    [Tooltip("Button 'Gửi' cho chế độ text")]
-    public Button sendTextButton;
-
-    [Header("=== VOICE MODE UI ===")]
-    [Tooltip("Button 'Bắt đầu ghi âm'")]
-    public Button startRecordButton;
-    [Tooltip("Button 'Dừng và Gửi'")]
-    public Button stopSendButton;
-    [Tooltip("Số giây ghi âm tối đa")]
     public int maxRecordSeconds = 10;
 
-    [Header("=== DEFAULT SCRIPT MODE UI ===")]
-    [Tooltip("Button để đọc đoạn text mặc định")]
+    [Header("Text Mode UI")]
+    public TMP_InputField textInput;
+    public Button sendTextButton;
+
+    [Header("Voice Mode UI")]
+    public Button startRecordButton;
+    public Button stopSendButton;
+
+    [Header("Default Script UI")]
     public Button readDefaultScriptButton;
-    [Tooltip("Đoạn script mặc định để TTS đọc")]
     [TextArea(3, 5)]
     public string defaultScript = "Hello, this is automatically generated text.";
 
-    [Header("=== VR SCRIPT CONFIG ===")]
-    [Tooltip("Vị trí công việc (VD: Data Analyst)")]
+    [Header("Interview Config")]
     public string jobTitle = "Data Analyst";
-    [Tooltip("Loại phỏng vấn (VD: Attitude Interview, Role-Specific Interview)")]
     public string interviewType = "Attitude Interview";
-    [Tooltip("Ngôn ngữ (VD: Vietnamese, English)")]
     public string language = "Vietnamese";
-    [Tooltip("Button để gọi API sinh kịch bản JSON")]
     public Button generateScriptButton;
 
-    [Header("=== STATUS UI ===")]
-    [Tooltip("Label hiển thị trạng thái (ví dụ: 'Đang ghi âm...', 'AI đang trả lời...')")]
+    [Header("Status UI")]
     public TMP_Text statusLabel;
-    [Tooltip("Label hiển thị text đã nhận dạng từ giọng nói")]
     public TMP_Text transcriptLabel;
 
-    [Header("=== GREETING SCRIPT ===")]
-    [Tooltip("Gắn UI Text chứa lời chào vào đây")]
+    [Header("Greeting UI")]
     public TMP_Text greetingTextUI;
     [TextArea(3, 5)]
-    public string englishGreeting = "Hi there, welcome to VirtuHire! My name is Phuong Hang. I'll be your interviewer for today's session. This is a safe space for you to practice and get comfortable with interviews. Just relax and do your best. Let's get started!";
+    public string englishGreeting = "Hi there, welcome to VirtuHire! My name is Phuong Hang. I will be your interviewer today.";
     [TextArea(3, 5)]
-    public string vietnameseGreeting = "Chào bạn, chào mừng đến với VirtuHire! Tôi tên là Phương Hằng. Tôi sẽ là người phỏng vấn bạn trong buổi hôm nay. Đây là một không gian an toàn để bạn luyện tập và làm quen với các cuộc phỏng vấn. Hãy cứ thư giãn và thể hiện hết mình nhé. Chúng ta bắt đầu nào!";
+    public string vietnameseGreeting = "Chao ban, chao mung den voi VirtuHire! Toi se la nguoi phong van ban hom nay.";
 
-    // --- Private state ---
-    private AudioClip _recordingClip;
-    private bool _isRecording = false;
-    private bool _isBusy = false;
-
-    // ─────────────────────────────────────────────────────────────
-    // Unity Lifecycle
-    // ─────────────────────────────────────────────────────────────
+    private AudioClip recordingClip;
+    private bool isRecording;
+    private bool isBusy;
+    private const float AdminPollIntervalSeconds = 2f;
 
     private void Start()
     {
-        // Tự thêm AudioSource nếu chưa có
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            sessionId = $"unity-{SystemInfo.deviceUniqueIdentifier}-{Guid.NewGuid():N}";
+        }
+
         if (audioSource == null)
         {
             audioSource = GetComponent<AudioSource>();
@@ -92,435 +70,458 @@ public class AIAudioClient : MonoBehaviour
             }
         }
 
-        // Gắn sự kiện cho các button
-        if (sendTextButton)   sendTextButton.onClick.AddListener(OnSendTextClicked);
+        if (sendTextButton) sendTextButton.onClick.AddListener(OnSendTextClicked);
         if (startRecordButton) startRecordButton.onClick.AddListener(OnStartRecordClicked);
-        if (stopSendButton)   stopSendButton.onClick.AddListener(OnStopAndSendClicked);
+        if (stopSendButton) stopSendButton.onClick.AddListener(OnStopAndSendClicked);
         if (readDefaultScriptButton) readDefaultScriptButton.onClick.AddListener(OnReadDefaultScriptClicked);
         if (generateScriptButton) generateScriptButton.onClick.AddListener(OnGenerateScriptClicked);
 
-        // Trạng thái ban đầu
         SetStopButtonInteractable(false);
-        SetStatus("Ready.");
-
-        // Kiểm tra và in danh sách microphone để dễ debug
-        if (Microphone.devices.Length > 0) {
-            foreach (var device in Microphone.devices) Debug.Log("Detected Mic: " + device);
-        } else {
-            Debug.LogError("No Microphone detected!");
-        }
+        SetStatus($"Ready. Session: {sessionId}");
+        StartCoroutine(PollAdminMessagesCoroutine());
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // TEXT MODE & DEFAULT SCRIPT
-    // ─────────────────────────────────────────────────────────────
 
     public void OnSendTextClicked()
     {
-        if (_isBusy) return;
-        string msg = textInput ? textInput.text.Trim() : "";
-        if (string.IsNullOrEmpty(msg)) { SetStatus("Please enter a question."); return; }
-        StartCoroutine(ChatVoiceCoroutine(msg));
+        if (isBusy) return;
+        string message = textInput ? textInput.text.Trim() : string.Empty;
+        if (string.IsNullOrEmpty(message))
+        {
+            SetStatus("Please enter a question.");
+            return;
+        }
+
+        StartCoroutine(ChatVoiceCoroutine(message));
     }
 
     public void OnReadDefaultScriptClicked()
     {
-        if (_isBusy) return;
-        if (string.IsNullOrEmpty(defaultScript)) { SetStatus("Default script is empty."); return; }
+        if (isBusy) return;
+        if (string.IsNullOrWhiteSpace(defaultScript))
+        {
+            SetStatus("Default script is empty.");
+            return;
+        }
+
         StartCoroutine(ReadTextCoroutine(defaultScript));
     }
 
     public void OnGenerateScriptClicked()
     {
-        if (_isBusy) return;
-        StartCoroutine(GenerateVRScriptCoroutine());
+        if (!isBusy)
+        {
+            StartCoroutine(GenerateVRScriptCoroutine());
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // UI SETTERS FOR VR CONFIG
-    // ─────────────────────────────────────────────────────────────
+    public void SetLanguageVietnamese() => language = "Vietnamese";
+    public void SetLanguageEnglish() => language = "English";
+    public void SetTypeAttitude() => interviewType = "Attitude Interview";
+    public void SetTypeRoleSpecific() => interviewType = "Role-Specific Interview";
 
-    public void SetLanguageVietnamese()
-    {
-        language = "Vietnamese";
-        Debug.Log("[AI] Language set to: Vietnamese");
-    }
-
-    public void SetLanguageEnglish()
-    {
-        language = "English";
-        Debug.Log("[AI] Language set to: English");
-    }
-
-    public void SetTypeAttitude()
-    {
-        interviewType = "Attitude Interview";
-        Debug.Log("[AI] Interview Type set to: Attitude Interview");
-    }
-
-    public void SetTypeRoleSpecific()
-    {
-        interviewType = "Role-Specific Interview";
-        Debug.Log("[AI] Interview Type set to: Role-Specific Interview");
-    }
-
-    /// <summary>
-    /// Phát âm thanh lời chào theo ngôn ngữ đã đặt. Gắn vào sự kiện OnClick() của nút Next.
-    /// </summary>
     public void PlayGreeting()
     {
-        string textToPlay = (language == "English") ? englishGreeting : vietnameseGreeting;
-        
-        if (greetingTextUI != null)
-        {
-            greetingTextUI.text = textToPlay;
-        }
-
-        Debug.Log($"[AI] Playing greeting in {language}...");
+        string textToPlay = language == "English" ? englishGreeting : vietnameseGreeting;
+        if (greetingTextUI) greetingTextUI.text = textToPlay;
         SpeakText(textToPlay);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // VOICE MODE
-    // ─────────────────────────────────────────────────────────────
-
     public void OnStartRecordClicked()
     {
-        if (_isBusy || _isRecording) return;
+        if (isBusy || isRecording) return;
 
         if (Microphone.devices.Length == 0)
         {
-            SetStatus("Error: No microphone found!");
+            SetStatus("Error: No microphone found.");
             return;
         }
 
-        _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
-        _isRecording = true;
-        SetStatus("🔴 Recording... (Press Stop when done)");
+        recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
+        isRecording = true;
         SetStartButtonInteractable(false);
         SetStopButtonInteractable(true);
+        SetStatus("Recording...");
     }
 
     public void OnStopAndSendClicked()
     {
-        if (!_isRecording) return;
+        if (!isRecording) return;
 
         int recordedSamples = Microphone.GetPosition(null);
         Microphone.End(null);
-        _isRecording = false;
-        SetStopButtonInteractable(false);
+        isRecording = false;
         SetStartButtonInteractable(true);
+        SetStopButtonInteractable(false);
 
-        if (recordedSamples < 100)
+        if (recordingClip == null || recordedSamples < 100)
         {
             SetStatus("Recording too short. Try again.");
-            // Dọn dẹp clip ghi âm lỗi
-            if (_recordingClip != null) Destroy(_recordingClip);
             return;
         }
 
-        // Cắt clip theo số sample thực tế
-        float[] data = new float[recordedSamples * _recordingClip.channels];
-        _recordingClip.GetData(data, 0);
-        AudioClip trimmed = AudioClip.Create("rec", recordedSamples, _recordingClip.channels, _recordingClip.frequency, false);
+        float[] data = new float[recordedSamples * recordingClip.channels];
+        recordingClip.GetData(data, 0);
+        AudioClip trimmed = AudioClip.Create("rec", recordedSamples, recordingClip.channels, recordingClip.frequency, false);
         trimmed.SetData(data, 0);
-
-        // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
-        Destroy(_recordingClip);
-
+        Destroy(recordingClip);
         StartCoroutine(SttThenChatCoroutine(trimmed));
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // COROUTINES
-    // ─────────────────────────────────────────────────────────────
-
-    /// <summary>Bước 1: Gửi WAV lên /api/stt → lấy text → Bước 2</summary>
     private IEnumerator SttThenChatCoroutine(AudioClip clip)
     {
-        _isBusy = true;
-        SetStatus("⏳ Recognizing speech...");
+        isBusy = true;
+        SetStatus("Recognizing speech...");
 
         byte[] wavBytes = AudioClipToWav(clip);
-        string endpoint = serverUrl + "/api/stt";
-
         WWWForm form = new WWWForm();
         form.AddBinaryData("audio", wavBytes, "recording.wav", "audio/wav");
+        form.AddField("session_id", sessionId);
+        form.AddField("job_title", jobTitle);
+        form.AddField("interview_type", interviewType);
+        form.AddField("language", language);
 
-        using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
+        using (UnityWebRequest req = UnityWebRequest.Post(serverUrl + "/api/stt", form))
         {
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("STT Error: " + req.error);
-                Debug.LogError("[AI] STT error: " + req.error);
-                Debug.Log("[AI] Response Code: " + req.responseCode);
-                _isBusy = false;
+                SttErrorResponse errorResponse = TryParseJson<SttErrorResponse>(req.downloadHandler.text);
+                if (errorResponse != null && errorResponse.need_admin)
+                {
+                    SetStatus("STT failed. Waiting for admin input from dashboard.");
+                }
+                else
+                {
+                    SetStatus("STT error: " + req.error);
+                }
+                isBusy = false;
                 yield break;
             }
 
-            string json = req.downloadHandler.text;
-            Debug.Log("[AI] STT Raw JSON: " + json);
-            SttResponse sttResp = JsonUtility.FromJson<SttResponse>(json);
-            string recognizedText = sttResp?.text?.Trim();
-
-            if (string.IsNullOrEmpty(recognizedText))
+            SttResponse sttResponse = TryParseJson<SttResponse>(req.downloadHandler.text);
+            string recognizedText = sttResponse != null ? sttResponse.text : string.Empty;
+            if (string.IsNullOrWhiteSpace(recognizedText))
             {
-                SetStatus("Could not recognize speech. Try again.");
-                _isBusy = false;
+                SetStatus("Could not recognize speech. Waiting for admin input.");
+                isBusy = false;
                 yield break;
             }
 
-            if (transcriptLabel) transcriptLabel.text = "🗣 You: " + recognizedText;
-            SetStatus("✅ Recognized: " + recognizedText);
-            Debug.Log("[AI] Recognized: " + recognizedText);
-
-            // Tiếp tục gửi lên AI
-            yield return ChatVoiceCoroutine(recognizedText);
+            if (transcriptLabel) transcriptLabel.text = "You: " + recognizedText;
+            yield return ChatVoiceCoroutine(recognizedText.Trim());
         }
     }
 
-    /// <summary>Bước 2: Gửi text lên /api/chat_voice → nhận WAV → phát</summary>
     private IEnumerator ChatVoiceCoroutine(string message)
     {
-        _isBusy = true;
-        SetStatus("🤖 AI is processing...");
+        isBusy = true;
+        SetStatus("AI is processing...");
 
-        string endpoint = serverUrl + "/api/chat_voice";
-        string jsonBody = JsonUtility.ToJson(new ChatPayload 
-        { 
+        ChatPayload payload = new ChatPayload
+        {
+            session_id = sessionId,
             message = message,
             job_title = jobTitle,
             interview_type = interviewType,
-            language = language
-        });
-        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+            language = language,
+        };
 
-        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload));
+        using (UnityWebRequest req = new UnityWebRequest(serverUrl + "/api/chat_voice", "POST"))
         {
-            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
-            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+            req.uploadHandler = new UploadHandlerRaw(bodyBytes);
+            req.downloadHandler = new DownloadHandlerAudioClip(serverUrl + "/api/chat_voice", AudioType.WAV);
             req.SetRequestHeader("Content-Type", "application/json");
 
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Connection Error: " + req.error);
-                Debug.LogError("[AI] Chat error: " + req.error);
-                _isBusy = false;
+                string errorMessage = req.error;
+                SttErrorResponse errorResponse = TryParseJson<SttErrorResponse>(req.downloadHandler.text);
+                if (errorResponse != null && !string.IsNullOrWhiteSpace(errorResponse.error))
+                {
+                    errorMessage = errorResponse.error;
+                }
+                SetStatus("Chat error: " + errorMessage);
+                isBusy = false;
                 yield break;
             }
 
+            string transcript = req.GetResponseHeader("X-Transcript");
+            if (!string.IsNullOrEmpty(transcript))
+            {
+                string decoded = Uri.UnescapeDataString(transcript);
+                if (transcriptLabel) transcriptLabel.text = "AI: " + decoded;
+            }
+
             AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
-            if (aiClip != null)
+            if (!PlayAudio(aiClip))
             {
-                if (audioSource.isPlaying) audioSource.Stop();
-
-                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
-                if (audioSource.clip != null) 
-                {
-                    Destroy(audioSource.clip);
-                }
-
-                audioSource.clip = aiClip;
-                audioSource.Play();
-                SetStatus("🔊 AI is answering...");
-                Debug.Log("[AI] Playing response audio.");
+                SetStatus("Error: Could not play server audio.");
+                isBusy = false;
+                yield break;
             }
-            else
-            {
-                SetStatus("Error: Could not read audio from server.");
-            }
+
+            SetStatus("AI is answering...");
         }
 
-        _isBusy = false;
+        isBusy = false;
     }
 
-    /// <summary>Gọi API sinh kịch bản VR JSON (không sinh audio)</summary>
     private IEnumerator GenerateVRScriptCoroutine()
     {
-        _isBusy = true;
-        SetStatus("⏳ Generating VR script...");
+        isBusy = true;
+        SetStatus("Generating VR script...");
 
-        string endpoint = serverUrl + "/api/chat";
-        string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
+        ScriptRequestPayload payload = new ScriptRequestPayload
+        {
+            session_id = sessionId,
             message = "Generate interview script",
             job_title = jobTitle,
             interview_type = interviewType,
-            language = language
-        });
-        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+            language = language,
+        };
 
-        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload));
+        using (UnityWebRequest req = new UnityWebRequest(serverUrl + "/api/chat", "POST"))
         {
-            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
+            req.uploadHandler = new UploadHandlerRaw(bodyBytes);
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
 
             yield return req.SendWebRequest();
-
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Connection Error: " + req.error);
-                Debug.LogError("[AI] Script error: " + req.error);
-                _isBusy = false;
+                SetStatus("Script error: " + req.error);
+                isBusy = false;
                 yield break;
             }
 
-            string responseJson = req.downloadHandler.text;
-            Debug.Log("[AI] VR Script Raw JSON:\n" + responseJson);
-            
-            // Nếu bạn cần parse JSON thành C# Object, hãy tạo các class tương ứng (như VrScriptResponse)
-            // và gọi: var scriptObj = JsonUtility.FromJson<VrScriptResponse>(responseJson);
-            
-            SetStatus("✅ Script generated! (Check Console)");
+            Debug.Log("[AI] VR script: " + req.downloadHandler.text);
+            SetStatus("Script generated. Check console.");
         }
 
-        _isBusy = false;
+        isBusy = false;
     }
 
-    /// <summary>Gửi text trực tiếp lên /api/tts → nhận WAV → phát</summary>
     public void SpeakText(string text)
     {
-        if (_isBusy) return;
-        StartCoroutine(ReadTextCoroutine(text));
+        if (!isBusy)
+        {
+            StartCoroutine(ReadTextCoroutine(text));
+        }
     }
 
     private IEnumerator ReadTextCoroutine(string text)
     {
-        _isBusy = true;
-        SetStatus("⏳ Generating voice (TTS)...");
+        isBusy = true;
+        SetStatus("Generating voice...");
 
-        string endpoint = serverUrl + "/api/tts";
-        string jsonBody = JsonUtility.ToJson(new TtsPayload { text = text, language = this.language });
-        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
-
-        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        TtsPayload payload = new TtsPayload
         {
-            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
-            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+            session_id = sessionId,
+            text = text,
+            language = language,
+        };
+
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload));
+        using (UnityWebRequest req = new UnityWebRequest(serverUrl + "/api/tts", "POST"))
+        {
+            req.uploadHandler = new UploadHandlerRaw(bodyBytes);
+            req.downloadHandler = new DownloadHandlerAudioClip(serverUrl + "/api/tts", AudioType.WAV);
             req.SetRequestHeader("Content-Type", "application/json");
 
             yield return req.SendWebRequest();
-
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("TTS Error: " + req.error);
-                Debug.LogError("[AI] TTS error: " + req.error);
-                _isBusy = false;
+                SetStatus("TTS error: " + req.error);
+                isBusy = false;
                 yield break;
             }
 
             AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
-            if (aiClip != null)
+            if (!PlayAudio(aiClip))
             {
-                if (audioSource.isPlaying) audioSource.Stop();
-
-                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
-                if (audioSource.clip != null) 
-                {
-                    Destroy(audioSource.clip);
-                }
-
-                audioSource.clip = aiClip;
-                audioSource.Play();
-                SetStatus("🔊 Reading text...");
-                Debug.Log("[AI] Playing TTS audio.");
+                SetStatus("Error: Could not play TTS audio.");
+                isBusy = false;
+                yield break;
             }
-            else
-            {
-                SetStatus("Error: Could not read audio from server.");
-            }
+
+            SetStatus("Reading text...");
         }
 
-        _isBusy = false;
+        isBusy = false;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // HELPERS
-    // ─────────────────────────────────────────────────────────────
-
-    private void SetStatus(string msg)
+    private IEnumerator PollAdminMessagesCoroutine()
     {
-        if (statusLabel) statusLabel.text = msg;
-        Debug.Log("[AI] " + msg);
+        while (true)
+        {
+            string endpoint = serverUrl + "/api/poll_admin_message?session_id=" + UnityWebRequest.EscapeURL(sessionId);
+            using (UnityWebRequest req = UnityWebRequest.Get(endpoint))
+            {
+                yield return req.SendWebRequest();
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    PollResponse response = TryParseJson<PollResponse>(req.downloadHandler.text);
+                    if (response != null && response.has_message && !string.IsNullOrWhiteSpace(response.message))
+                    {
+                        if (transcriptLabel) transcriptLabel.text = "Admin queued: " + response.message;
+                        while (isBusy)
+                        {
+                            yield return null;
+                        }
+                        yield return ChatVoiceCoroutine(response.message.Trim());
+                    }
+                }
+            }
+
+            yield return new WaitForSeconds(AdminPollIntervalSeconds);
+        }
     }
 
-    private void SetStartButtonInteractable(bool v)
+    private bool PlayAudio(AudioClip clip)
     {
-        if (startRecordButton) startRecordButton.interactable = v;
+        if (clip == null || audioSource == null)
+        {
+            return false;
+        }
+
+        if (audioSource.isPlaying)
+        {
+            audioSource.Stop();
+        }
+
+        if (audioSource.clip != null)
+        {
+            Destroy(audioSource.clip);
+        }
+
+        audioSource.clip = clip;
+        audioSource.Play();
+        return true;
     }
 
-    private void SetStopButtonInteractable(bool v)
+    private void SetStatus(string message)
     {
-        if (stopSendButton) stopSendButton.interactable = v;
+        if (statusLabel) statusLabel.text = message;
+        Debug.Log("[AI] " + message);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // AudioClip → WAV bytes (PCM 16-bit)
-    // ─────────────────────────────────────────────────────────────
+    private void SetStartButtonInteractable(bool value)
+    {
+        if (startRecordButton) startRecordButton.interactable = value;
+    }
+
+    private void SetStopButtonInteractable(bool value)
+    {
+        if (stopSendButton) stopSendButton.interactable = value;
+    }
+
+    private static T TryParseJson<T>(string json) where T : class
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonUtility.FromJson<T>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static byte[] AudioClipToWav(AudioClip clip)
     {
         float[] samples = new float[clip.samples * clip.channels];
         clip.GetData(samples, 0);
 
-        short[] intData = new short[samples.Length];
         byte[] bytesData = new byte[samples.Length * 2];
         for (int i = 0; i < samples.Length; i++)
         {
-            intData[i] = (short)(samples[i] * 32767f);
-            byte[] byteArr = System.BitConverter.GetBytes(intData[i]);
-            bytesData[i * 2]     = byteArr[0];
+            short sample = (short)(samples[i] * 32767f);
+            byte[] byteArr = BitConverter.GetBytes(sample);
+            bytesData[i * 2] = byteArr[0];
             bytesData[i * 2 + 1] = byteArr[1];
         }
 
         using (MemoryStream stream = new MemoryStream())
         using (BinaryWriter writer = new BinaryWriter(stream))
         {
-            int hz        = clip.frequency;
-            int channels  = clip.channels;
-            int dataSize  = bytesData.Length;
+            int hz = clip.frequency;
+            int channels = clip.channels;
+            int dataSize = bytesData.Length;
 
             writer.Write(Encoding.ASCII.GetBytes("RIFF"));
             writer.Write(36 + dataSize);
             writer.Write(Encoding.ASCII.GetBytes("WAVE"));
             writer.Write(Encoding.ASCII.GetBytes("fmt "));
-            writer.Write(16);          // chunk size
-            writer.Write((short)1);    // PCM
+            writer.Write(16);
+            writer.Write((short)1);
             writer.Write((short)channels);
             writer.Write(hz);
             writer.Write(hz * channels * 2);
             writer.Write((short)(channels * 2));
-            writer.Write((short)16);   // bits per sample
+            writer.Write((short)16);
             writer.Write(Encoding.ASCII.GetBytes("data"));
             writer.Write(dataSize);
             writer.Write(bytesData);
-
             return stream.ToArray();
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // JSON Models
-    // ─────────────────────────────────────────────────────────────
-    [System.Serializable] private class ChatPayload  { 
-        public string message; 
+    [Serializable]
+    private class ChatPayload
+    {
+        public string session_id;
+        public string message;
         public string job_title;
         public string interview_type;
         public string language;
     }
-    [System.Serializable] private class SttResponse  { public string text; }
-    [System.Serializable] private class TtsPayload   { 
-        public string text; 
+
+    [Serializable]
+    private class TtsPayload
+    {
+        public string session_id;
+        public string text;
         public string language;
     }
-    [System.Serializable] private class ScriptRequestPayload { 
-        public string message; 
-        public string job_title; 
-        public string interview_type; 
-        public string language; 
+
+    [Serializable]
+    private class ScriptRequestPayload
+    {
+        public string session_id;
+        public string message;
+        public string job_title;
+        public string interview_type;
+        public string language;
+    }
+
+    [Serializable]
+    private class SttResponse
+    {
+        public string text;
+    }
+
+    [Serializable]
+    private class SttErrorResponse
+    {
+        public string error;
+        public bool need_admin;
+        public string session_id;
+    }
+
+    [Serializable]
+    private class PollResponse
+    {
+        public bool has_message;
+        public string message;
     }
 }
