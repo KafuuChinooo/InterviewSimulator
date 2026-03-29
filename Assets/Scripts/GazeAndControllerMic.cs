@@ -152,11 +152,16 @@ public class GazeAndControllerMic : MonoBehaviour
             return false;
         }
 
-        // Nếu mic là UI (RectTransform), dùng GraphicRaycaster
         if (targetRect != null && graphicRaycaster != null && eventSystem != null)
         {
             PointerEventData ped = new PointerEventData(eventSystem);
-            ped.position = new Vector2(Screen.width / 2f, Screen.height / 2f);
+            Vector2 screenCenter = new Vector2(Screen.width / 2f, Screen.height / 2f);
+            if (vrCamera != null)
+            {
+                screenCenter = vrCamera.ViewportToScreenPoint(new Vector3(0.5f, 0.5f, 0f));
+            }
+            ped.position = screenCenter;
+
             List<RaycastResult> results = new List<RaycastResult>();
             graphicRaycaster.Raycast(ped, results);
             // Nếu có một UI blocker đang hiển thị thì vô hiệu hoá gaze

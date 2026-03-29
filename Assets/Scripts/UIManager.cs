@@ -27,16 +27,38 @@ public class UIManager : MonoBehaviour
         UpdateScreenVisibility();
     }
 
+    // === HÀM DỌN DẸP TUYỆT ĐỐI (KHÔNG CẦN ARRAY) ===
+    private void HideAllScreens()
+    {
+        // 1. Tắt danh sách cũ (nếu có)
+        if (screens != null)
+        {
+            foreach (var s in screens)
+            {
+                if (s != null && s.activeSelf) 
+                    s.SetActive(false);
+            }
+        }
+
+        // 2. Chế độ quét rác: Tìm TẤT CẢ các object bắt đầu bằng "Trang_" đang mở và TẮT HẾT.
+        // Giúp miễn nhiễm với lỗi rác giao diện, sai array, hoặc kéo màn hình lung tung.
+        var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+        foreach (var obj in allObjects)
+        {
+            if (obj != null && obj.activeInHierarchy && obj.name.StartsWith("Trang_"))
+            {
+                obj.SetActive(false);
+            }
+        }
+    }
+
     // Hàm dùng cho nút NEXT (Cũ)
     public void NextScreen()
     {
         if (currentScreenIndex < screens.Length - 1)
         {
-            if (screens[currentScreenIndex] != null)
-                screens[currentScreenIndex].SetActive(false);
-
+            HideAllScreens();
             currentScreenIndex++;
-
             if (screens[currentScreenIndex] != null)
                 screens[currentScreenIndex].SetActive(true);
         }
@@ -47,11 +69,8 @@ public class UIManager : MonoBehaviour
     {
         if (currentScreenIndex > 0)
         {
-            if (screens[currentScreenIndex] != null)
-                screens[currentScreenIndex].SetActive(false);
-
+            HideAllScreens();
             currentScreenIndex--;
-
             if (screens[currentScreenIndex] != null)
                 screens[currentScreenIndex].SetActive(true);
         }
@@ -60,12 +79,10 @@ public class UIManager : MonoBehaviour
     // Hàm an toàn để đảm bảo ẩn / hiện đúng màn hình khi bắt đầu hoặc được gọi từ đâu đó
     private void UpdateScreenVisibility()
     {
-        for (int i = 0; i < screens.Length; i++)
+        HideAllScreens();
+        if (currentScreenIndex >= 0 && currentScreenIndex < screens.Length && screens[currentScreenIndex] != null)
         {
-            if (screens[i] != null)
-            {
-                screens[i].SetActive(i == currentScreenIndex);
-            }
+            screens[currentScreenIndex].SetActive(true);
         }
     }
 
@@ -89,32 +106,11 @@ public class UIManager : MonoBehaviour
     // 2. Chuyển sang bất kỳ màn hình nào bất chấp thứ tự (Tự động dọn dẹp)
     public void GoToScreen(GameObject screenToOpen)
     {
-        // Cách 1: Tắt dựa trên danh sách có sẵn (Phòng hờ rủi ro)
-        if (screens != null)
+        HideAllScreens();
+        
+        // Cuối cùng mới bật màn hình được chỉ định lên
+        if (screenToOpen != null)
         {
-            foreach (var s in screens)
-            {
-                if (s != null && s.activeSelf) 
-                    s.SetActive(false);
-            }
-        }
-
-        // Cách 2: Tìm gốc của màn hình (Giao_dien) và tắt hết các nhánh anh/em của nó
-        // Việc này ngăn màn hình bị chồng chéo nếu anh quên thêm màn hình mới vào mảng 'screens'.
-        if (screenToOpen != null && screenToOpen.transform.parent != null)
-        {
-            Transform parentObj = screenToOpen.transform.parent;
-            for (int i = 0; i < parentObj.childCount; i++)
-            {
-                GameObject child = parentObj.GetChild(i).gameObject;
-                // Chỉ tắt nếu nó đang bật (tối ưu hóa)
-                if (child.activeSelf)
-                {
-                    child.SetActive(false);
-                }
-            }
-            
-            // Cuối cùng mới bật màn hình được chỉ định lên
             screenToOpen.SetActive(true);
         }
     }
