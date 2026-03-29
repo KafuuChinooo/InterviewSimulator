@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using System.IO;
 using UnityEngine;
@@ -20,7 +21,7 @@ public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
     [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
-    public string serverUrl = "http://127.0.0.1:8000";
+    public string serverUrl = "http://192.168.1.3:8000";
 
     [Header("=== AUDIO ===")]
     [Tooltip("AudioSource để phát câu trả lời của AI")]
@@ -75,6 +76,9 @@ public class AIAudioClient : MonoBehaviour
     private AudioClip _recordingClip;
     private bool _isRecording = false;
     private bool _isBusy = false;
+    // Public read-only accessors for other scripts (e.g., gaze/controller helper)
+    public bool IsRecording { get { return _isRecording; } }
+    public bool IsBusy { get { return _isBusy; } }
 
     // ─────────────────────────────────────────────────────────────
     // Unity Lifecycle
@@ -108,6 +112,42 @@ public class AIAudioClient : MonoBehaviour
             foreach (var device in Microphone.devices) Debug.Log("Detected Mic: " + device);
         } else {
             Debug.LogError("No Microphone detected!");
+        }
+
+        // Nếu trong scene chưa có GazeAndControllerMic, tự động thêm để tiện test
+        if (FindObjectOfType<GazeAndControllerMic>() == null)
+        {
+            try
+            {
+                var gaze = gameObject.AddComponent<GazeAndControllerMic>();
+                gaze.aiAudioClient = this;
+
+                // Cố gắng tự tìm micTarget theo tên
+                GameObject micObj = GameObject.Find("Mic");
+                if (micObj == null)
+                {
+                    foreach (var go in GameObject.FindObjectsOfType<GameObject>())
+                    {
+                        if (go.name.ToLower().Contains("mic")) { micObj = go; break; }
+                    }
+                }
+                if (micObj != null) gaze.micTarget = micObj;
+
+                // Gán các UI blocker (tìm các object có tên chứa 'trang_4' hoặc 'position')
+                var blockers = new List<GameObject>();
+                foreach (var go in GameObject.FindObjectsOfType<GameObject>())
+                {
+                    var n = go.name.ToLower();
+                    if (n.Contains("trang_4") || n.Contains("position") || n.Contains("trang4")) blockers.Add(go);
+                }
+                if (blockers.Count > 0) gaze.uiBlockers = blockers.ToArray();
+
+                Debug.Log("[AI] Auto-added GazeAndControllerMic to " + gameObject.name + (micObj != null ? " (mic: " + micObj.name + ")" : " (mic not found)"));
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[AI] Could not auto-add GazeAndControllerMic: " + ex.Message);
+            }
         }
     }
 
@@ -184,6 +224,22 @@ public class AIAudioClient : MonoBehaviour
     // VOICE MODE
     // ─────────────────────────────────────────────────────────────
 
+    public void ToggleRecord()
+    {
+        if (_isBusy) return;
+        
+        if (!_isRecording)
+        {
+            OnStartRecordClicked();
+            Debug.Log("[AI] Vừa bật ghi âm bằng nút Mic.");
+        }
+        else
+        {
+            OnStopAndSendClicked();
+            Debug.Log("[AI] Vừa tắt và gửi ghi âm đi.");
+        }
+    }
+
     public void OnStartRecordClicked()
     {
         if (_isBusy || _isRecording) return;
@@ -229,6 +285,26 @@ public class AIAudioClient : MonoBehaviour
         Destroy(_recordingClip);
 
         StartCoroutine(SttThenChatCoroutine(trimmed));
+    }
+
+    /// <summary>
+    /// Bắt đầu ghi âm trong một khoảng thời gian cố định (giây) rồi tự động dừng và gửi.
+    /// Dùng cho kích hoạt bằng gaze hoặc controller.
+    /// </summary>
+    public void StartRecordForSeconds(int seconds)
+    {
+        StartCoroutine(StartRecordForSecondsCoroutine(seconds));
+    }
+
+    private IEnumerator StartRecordForSecondsCoroutine(int seconds)
+    {
+        if (_isBusy || _isRecording) yield break;
+        int prevMax = maxRecordSeconds;
+        maxRecordSeconds = Mathf.Max(maxRecordSeconds, seconds);
+        OnStartRecordClicked();
+        yield return new WaitForSeconds(seconds);
+        OnStopAndSendClicked();
+        maxRecordSeconds = prevMax;
     }
 
     // ─────────────────────────────────────────────────────────────

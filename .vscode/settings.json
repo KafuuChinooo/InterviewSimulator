@@ -51,5 +51,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "InterviewSimulator.sln"
+    "dotnet.defaultSolution": "InterviewSimulator.sln",
+    "dotnet.preferCSharpExtension": true
 }
