@@ -63,7 +63,7 @@ public class AIAudioClient : MonoBehaviour
     [Header("=== STATUS UI ===")]
     [Tooltip("Label hiển thị trạng thái (ví dụ: 'Đang ghi âm...', 'AI đang trả lời...')")]
     public TMP_Text statusLabel;
-    [Tooltip("Label hiển thị text đã nhận dạng từ giọng nói")]
+    [Tooltip("Label hiển thị lời AI chuẩn bị phát ra")]
     public TMP_Text transcriptLabel;
 
     [Header("=== GREETING SCRIPT ===")]
@@ -78,9 +78,37 @@ public class AIAudioClient : MonoBehaviour
     private AudioClip _recordingClip;
     private bool _isRecording = false;
     private bool _isBusy = false;
+    private StatusKey _currentStatusKey = StatusKey.Ready;
+    private string _currentStatusDetail = "";
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
+
+    private enum StatusKey
+    {
+        Ready,
+        EmptyQuestion,
+        DefaultScriptEmpty,
+        NoMicrophone,
+        MicRecording,
+        MicStopped,
+        MicStoppedShort,
+        MicSendingAudio,
+        RecognizingSpeech,
+        SpeechNotRecognized,
+        SpeechRecognizedSendingToAi,
+        AiProcessing,
+        ConnectionError,
+        AiAnswering,
+        AiAudioUnreadable,
+        GeneratingScript,
+        ScriptGenerationFailed,
+        ScriptGenerated,
+        PreparingVoice,
+        TtsError,
+        AiSpeaking,
+        AiVoiceUnreadable
+    }
 
     private bool UseSingleRecordButton
     {
@@ -130,7 +158,7 @@ public class AIAudioClient : MonoBehaviour
 
         // Trạng thái ban đầu
         RefreshRecordButtons();
-        SetStatus("Ready.");
+        SetStatus("Sẵn sàng phỏng vấn.");
 
         // Kiểm tra và in danh sách microphone để dễ debug
         if (Microphone.devices.Length > 0) {
@@ -184,7 +212,7 @@ public class AIAudioClient : MonoBehaviour
     {
         if (_isBusy) return;
         string msg = textInput ? textInput.text.Trim() : "";
-        if (string.IsNullOrEmpty(msg)) { SetStatus("Please enter a question."); return; }
+        if (string.IsNullOrEmpty(msg)) { SetStatus("Chưa nhập câu hỏi."); return; }
         StartCoroutine(ChatVoiceCoroutine(msg));
     }
 
@@ -217,12 +245,14 @@ public class AIAudioClient : MonoBehaviour
     public void SetLanguageVietnamese()
     {
         language = "Vietnamese";
+        ApplyCurrentStatus(false);
         Debug.Log("[AI] Language set to: Vietnamese");
     }
 
     public void SetLanguageEnglish()
     {
         language = "English";
+        ApplyCurrentStatus(false);
         Debug.Log("[AI] Language set to: English");
     }
 
@@ -292,7 +322,7 @@ public class AIAudioClient : MonoBehaviour
 
         _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
         _isRecording = true;
-        SetStatus("🔴 Recording... (Press Stop when done)");
+        SetStatus("Mic đang ghi âm...");
         RefreshRecordButtons();
     }
 
@@ -304,10 +334,11 @@ public class AIAudioClient : MonoBehaviour
         Microphone.End(null);
         _isRecording = false;
         RefreshRecordButtons();
+        SetStatus("Mic đã dừng.");
 
         if (recordedSamples < 100)
         {
-            SetStatus("Recording too short. Try again.");
+            SetStatus("Mic đã dừng. Bản ghi quá ngắn.");
             // Dọn dẹp clip ghi âm lỗi
             if (_recordingClip != null) Destroy(_recordingClip);
             return;
@@ -322,6 +353,7 @@ public class AIAudioClient : MonoBehaviour
         // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
         Destroy(_recordingClip);
 
+        SetStatus("Mic đã dừng. Đang gửi âm thanh...");
         StartCoroutine(SttThenChatCoroutine(trimmed));
     }
 
@@ -354,7 +386,7 @@ public class AIAudioClient : MonoBehaviour
     {
         _isBusy = true;
         RefreshRecordButtons();
-        SetStatus("⏳ Recognizing speech...");
+        SetStatus("Đang nhận diện giọng nói...");
 
         byte[] wavBytes = AudioClipToWav(clip);
         string endpoint = serverUrl + "/api/stt";
@@ -387,14 +419,13 @@ public class AIAudioClient : MonoBehaviour
 
             if (string.IsNullOrEmpty(recognizedText))
             {
-                SetStatus("Could not recognize speech. Try again.");
+                SetStatus("Không nhận diện được giọng nói. Hãy thử lại.");
                 _isBusy = false;
                 RefreshRecordButtons();
                 yield break;
             }
 
-            if (transcriptLabel) transcriptLabel.text = "🗣 You: " + recognizedText;
-            SetStatus("✅ Recognized: " + recognizedText);
+            SetStatus("Đã nhận diện giọng nói. Đang gửi đến AI...");
             Debug.Log("[AI] Recognized: " + recognizedText);
 
             // Tiếp tục gửi lên AI
@@ -407,7 +438,7 @@ public class AIAudioClient : MonoBehaviour
     {
         _isBusy = true;
         RefreshRecordButtons();
-        SetStatus("🤖 AI is processing...");
+        SetStatus("AI đang xử lý...");
 
         string endpoint = serverUrl + "/api/chat_voice";
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
@@ -440,6 +471,12 @@ public class AIAudioClient : MonoBehaviour
             AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
             if (aiClip != null)
             {
+                string aiTranscript = req.GetResponseHeader("X-Transcript");
+                SetAiTranscriptText(
+                    !string.IsNullOrEmpty(aiTranscript)
+                        ? UnityWebRequest.UnEscapeURL(aiTranscript)
+                        : null);
+
                 if (audioSource.isPlaying) audioSource.Stop();
 
                 // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
@@ -450,12 +487,12 @@ public class AIAudioClient : MonoBehaviour
 
                 audioSource.clip = aiClip;
                 audioSource.Play();
-                SetStatus("🔊 AI is answering...");
+                SetStatus("AI đang trả lời...");
                 Debug.Log("[AI] Playing response audio.");
             }
             else
             {
-                SetStatus("Error: Could not read audio from server.");
+                SetStatus("Không đọc được âm thanh phản hồi từ AI.");
             }
         }
 
@@ -468,7 +505,7 @@ public class AIAudioClient : MonoBehaviour
     {
         _isBusy = true;
         RefreshRecordButtons();
-        SetStatus("⏳ Generating VR script...");
+        SetStatus("AI đang tạo kịch bản phỏng vấn...");
 
         string endpoint = serverUrl + "/api/chat";
         string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
@@ -490,7 +527,7 @@ public class AIAudioClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Connection Error: " + req.error);
+                SetStatus("Tạo kịch bản thất bại: " + req.error);
                 Debug.LogError("[AI] Script error: " + req.error);
                 _isBusy = false;
                 RefreshRecordButtons();
@@ -503,7 +540,7 @@ public class AIAudioClient : MonoBehaviour
             // Nếu bạn cần parse JSON thành C# Object, hãy tạo các class tương ứng (như VrScriptResponse)
             // và gọi: var scriptObj = JsonUtility.FromJson<VrScriptResponse>(responseJson);
             
-            SetStatus("✅ Script generated! (Check Console)");
+            SetStatus("Đã tạo kịch bản phỏng vấn.");
         }
 
         _isBusy = false;
@@ -521,7 +558,7 @@ public class AIAudioClient : MonoBehaviour
     {
         _isBusy = true;
         RefreshRecordButtons();
-        SetStatus("⏳ Generating voice (TTS)...");
+        SetStatus("AI đang chuẩn bị giọng nói...");
 
         string endpoint = serverUrl + "/api/tts";
         string jsonBody = JsonUtility.ToJson(new TtsPayload {
@@ -551,6 +588,8 @@ public class AIAudioClient : MonoBehaviour
             AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
             if (aiClip != null)
             {
+                SetAiTranscriptText(text);
+
                 if (audioSource.isPlaying) audioSource.Stop();
 
                 // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
@@ -561,12 +600,12 @@ public class AIAudioClient : MonoBehaviour
 
                 audioSource.clip = aiClip;
                 audioSource.Play();
-                SetStatus("🔊 Reading text...");
+                SetStatus("AI đang nói...");
                 Debug.Log("[AI] Playing TTS audio.");
             }
             else
             {
-                SetStatus("Error: Could not read audio from server.");
+                SetStatus("Không đọc được âm thanh giọng nói của AI.");
             }
         }
 
@@ -580,8 +619,238 @@ public class AIAudioClient : MonoBehaviour
 
     private void SetStatus(string msg)
     {
-        if (statusLabel) statusLabel.text = msg;
-        Debug.Log("[AI] " + msg);
+        ParseStatus(msg, out _currentStatusKey, out _currentStatusDetail);
+        ApplyCurrentStatus(true);
+    }
+
+    private void ApplyCurrentStatus(bool log)
+    {
+        string localized = GetLocalizedStatusText(_currentStatusKey, _currentStatusDetail);
+        if (statusLabel) statusLabel.text = localized;
+        if (log) Debug.Log("[AI] " + localized);
+    }
+
+    private void ParseStatus(string msg, out StatusKey key, out string detail)
+    {
+        detail = "";
+
+        if (msg == "Sáºµn sÃ ng phá»ng váº¥n." || msg == "Ready for interview.")
+        {
+            key = StatusKey.Ready;
+            return;
+        }
+
+        if (msg == "ChÆ°a nháº­p cÃ¢u há»i." || msg == "No question entered.")
+        {
+            key = StatusKey.EmptyQuestion;
+            return;
+        }
+
+        if (msg == "Default script is empty." || msg == "Kịch bản mặc định đang trống.")
+        {
+            key = StatusKey.DefaultScriptEmpty;
+            return;
+        }
+
+        if (msg == "Error: No microphone found!" || msg == "No microphone found.")
+        {
+            key = StatusKey.NoMicrophone;
+            return;
+        }
+
+        if (msg == "Mic Ä‘ang ghi Ã¢m..." || msg == "Mic is recording...")
+        {
+            key = StatusKey.MicRecording;
+            return;
+        }
+
+        if (msg == "Mic Ä‘Ã£ dá»«ng." || msg == "Mic stopped.")
+        {
+            key = StatusKey.MicStopped;
+            return;
+        }
+
+        if (msg == "Mic Ä‘Ã£ dá»«ng. Báº£n ghi quÃ¡ ngáº¯n." || msg == "Mic stopped. Recording too short.")
+        {
+            key = StatusKey.MicStoppedShort;
+            return;
+        }
+
+        if (msg == "Mic Ä‘Ã£ dá»«ng. Äang gá»­i Ã¢m thanh..." || msg == "Mic stopped. Sending audio...")
+        {
+            key = StatusKey.MicSendingAudio;
+            return;
+        }
+
+        if (msg == "Äang nháº­n diá»‡n giá»ng nÃ³i..." || msg == "Recognizing speech...")
+        {
+            key = StatusKey.RecognizingSpeech;
+            return;
+        }
+
+        if (msg.StartsWith("STT Error: "))
+        {
+            key = StatusKey.ConnectionError;
+            detail = msg.Substring("STT Error: ".Length);
+            return;
+        }
+
+        if (msg == "KhÃ´ng nháº­n diá»‡n Ä‘Æ°á»£c giá»ng nÃ³i. HÃ£y thá»­ láº¡i." || msg == "Speech was not recognized. Please try again.")
+        {
+            key = StatusKey.SpeechNotRecognized;
+            return;
+        }
+
+        if (msg == "ÄÃ£ nháº­n diá»‡n giá»ng nÃ³i. Äang gá»­i Ä‘áº¿n AI..." || msg == "Speech recognized. Sending to AI...")
+        {
+            key = StatusKey.SpeechRecognizedSendingToAi;
+            return;
+        }
+
+        if (msg == "AI Ä‘ang xá»­ lÃ½..." || msg == "AI is processing...")
+        {
+            key = StatusKey.AiProcessing;
+            return;
+        }
+
+        if (msg.StartsWith("Connection Error: ") || msg.StartsWith("Lỗi kết nối: "))
+        {
+            key = StatusKey.ConnectionError;
+            detail = msg.Substring(msg.IndexOf(": ") + 2);
+            return;
+        }
+
+        if (msg == "AI Ä‘ang tráº£ lá»i..." || msg == "AI is answering...")
+        {
+            key = StatusKey.AiAnswering;
+            return;
+        }
+
+        if (msg == "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c Ã¢m thanh pháº£n há»“i tá»« AI." || msg == "Could not read AI response audio.")
+        {
+            key = StatusKey.AiAudioUnreadable;
+            return;
+        }
+
+        if (msg == "AI Ä‘ang táº¡o ká»‹ch báº£n phá»ng váº¥n..." || msg == "AI is generating the interview script...")
+        {
+            key = StatusKey.GeneratingScript;
+            return;
+        }
+
+        if (msg.StartsWith("Táº¡o ká»‹ch báº£n tháº¥t báº¡i: ") || msg.StartsWith("Script generation failed: "))
+        {
+            key = StatusKey.ScriptGenerationFailed;
+            detail = msg.Substring(msg.IndexOf(": ") + 2);
+            return;
+        }
+
+        if (msg == "ÄÃ£ táº¡o ká»‹ch báº£n phá»ng váº¥n." || msg == "Interview script generated.")
+        {
+            key = StatusKey.ScriptGenerated;
+            return;
+        }
+
+        if (msg == "AI Ä‘ang chuáº©n bá»‹ giá»ng nÃ³i..." || msg == "AI is preparing voice...")
+        {
+            key = StatusKey.PreparingVoice;
+            return;
+        }
+
+        if (msg.StartsWith("TTS Error: ") || msg.StartsWith("Lỗi TTS: "))
+        {
+            key = StatusKey.TtsError;
+            detail = msg.Substring(msg.IndexOf(": ") + 2);
+            return;
+        }
+
+        if (msg == "AI Ä‘ang nÃ³i..." || msg == "AI is speaking...")
+        {
+            key = StatusKey.AiSpeaking;
+            return;
+        }
+
+        if (msg == "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c Ã¢m thanh giá»ng nÃ³i cá»§a AI." || msg == "Could not read AI voice audio.")
+        {
+            key = StatusKey.AiVoiceUnreadable;
+            return;
+        }
+
+        key = StatusKey.ConnectionError;
+        detail = msg;
+    }
+
+    private string GetLocalizedStatusText(StatusKey key, string detail)
+    {
+        bool isEnglish = language == "English";
+
+        switch (key)
+        {
+            case StatusKey.Ready:
+                return isEnglish ? "Ready for interview." : "Sẵn sàng phỏng vấn.";
+            case StatusKey.EmptyQuestion:
+                return isEnglish ? "No question entered." : "Chưa nhập câu hỏi.";
+            case StatusKey.DefaultScriptEmpty:
+                return isEnglish ? "Default script is empty." : "Kịch bản mặc định đang trống.";
+            case StatusKey.NoMicrophone:
+                return isEnglish ? "No microphone found." : "Không tìm thấy microphone.";
+            case StatusKey.MicRecording:
+                return isEnglish ? "Mic is recording..." : "Mic đang ghi âm...";
+            case StatusKey.MicStopped:
+                return isEnglish ? "Mic stopped." : "Mic đã dừng.";
+            case StatusKey.MicStoppedShort:
+                return isEnglish ? "Mic stopped. Recording too short." : "Mic đã dừng. Bản ghi quá ngắn.";
+            case StatusKey.MicSendingAudio:
+                return isEnglish ? "Mic stopped. Sending audio..." : "Mic đã dừng. Đang gửi âm thanh...";
+            case StatusKey.RecognizingSpeech:
+                return isEnglish ? "Recognizing speech..." : "Đang nhận diện giọng nói...";
+            case StatusKey.SpeechNotRecognized:
+                return isEnglish ? "Speech was not recognized. Please try again." : "Không nhận diện được giọng nói. Hãy thử lại.";
+            case StatusKey.SpeechRecognizedSendingToAi:
+                return isEnglish ? "Speech recognized. Sending to AI..." : "Đã nhận diện giọng nói. Đang gửi đến AI...";
+            case StatusKey.AiProcessing:
+                return isEnglish ? "AI is processing..." : "AI đang xử lý...";
+            case StatusKey.ConnectionError:
+                return isEnglish ? "Connection error: " + detail : "Lỗi kết nối: " + detail;
+            case StatusKey.AiAnswering:
+                return isEnglish ? "AI is answering..." : "AI đang trả lời...";
+            case StatusKey.AiAudioUnreadable:
+                return isEnglish ? "Could not read AI response audio." : "Không đọc được âm thanh phản hồi từ AI.";
+            case StatusKey.GeneratingScript:
+                return isEnglish ? "AI is generating the interview script..." : "AI đang tạo kịch bản phỏng vấn...";
+            case StatusKey.ScriptGenerationFailed:
+                return isEnglish ? "Script generation failed: " + detail : "Tạo kịch bản thất bại: " + detail;
+            case StatusKey.ScriptGenerated:
+                return isEnglish ? "Interview script generated." : "Đã tạo kịch bản phỏng vấn.";
+            case StatusKey.PreparingVoice:
+                return isEnglish ? "AI is preparing voice..." : "AI đang chuẩn bị giọng nói...";
+            case StatusKey.TtsError:
+                return isEnglish ? "TTS error: " + detail : "Lỗi TTS: " + detail;
+            case StatusKey.AiSpeaking:
+                return isEnglish ? "AI is speaking..." : "AI đang nói...";
+            case StatusKey.AiVoiceUnreadable:
+                return isEnglish ? "Could not read AI voice audio." : "Không đọc được âm thanh giọng nói của AI.";
+            default:
+                return detail;
+        }
+    }
+
+    private void SetAiTranscriptText(string transcript)
+    {
+        if (!transcriptLabel) return;
+
+        string displayText = string.IsNullOrWhiteSpace(transcript)
+            ? GetLocalizedTranscriptFallback()
+            : transcript.Trim();
+
+        transcriptLabel.text = "🤖 AI: " + displayText;
+    }
+
+    private string GetLocalizedTranscriptFallback()
+    {
+        return language == "English"
+            ? "(audio response only)"
+            : "(chỉ có phản hồi bằng giọng nói)";
     }
 
     private void EnsureSessionId()
