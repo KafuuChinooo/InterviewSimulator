@@ -1,117 +1,180 @@
-using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Kích hoạt ghi âm khi người dùng nhìn vào `micTarget` trong `gazeTriggerTime` giây
-/// hoặc nhấn `controllerButton`. Khi kích hoạt, sẽ ghi âm trong `recordDuration` giây
-/// rồi tự động dừng và gửi bằng `AIAudioClient.StartRecordForSeconds`.
-/// 
-/// Gắn script này lên một GameObject trống; kéo `micTarget` (UI/3D mic) và `aiAudioClient` vào.
+/// Kich hoat ghi am khi nguoi dung nhin vao bat ky mic nao trong `micTargets`
+/// trong `gazeTriggerTime` giay hoac nhan `controllerButton`.
+/// Script tu dong chon mic dang active trong scene va hien thi visual feedback.
 /// </summary>
 public class GazeAndControllerMic : MonoBehaviour
 {
-    [Tooltip("Tham chiếu tới AIAudioClient trong scene")]
+    [Tooltip("Tham chieu toi AIAudioClient trong scene")]
     public AIAudioClient aiAudioClient;
 
-    [Tooltip("GameObject đại diện cho mic (UI hoặc 3D object)")]
+    [Tooltip("Keo tat ca cac nut Mic vao day (Mic tieng Anh, Mic tieng Viet, v.v.).")]
+    public GameObject[] micTargets;
+
+    [HideInInspector]
     public GameObject micTarget;
 
-    [Tooltip("Camera dùng để raycast (để gaze). Mặc định là Camera.main nếu để trống")]
+    [Tooltip("Camera dung de raycast (de gaze). Mac dinh la Camera.main neu de trong")]
     public Camera vrCamera;
 
-    [Tooltip("Thời gian (giây) nhìn liên tục vào mic để kích hoạt")]
+    [Tooltip("Thoi gian (giay) nhin lien tuc vao mic de kich hoat")]
     public float gazeTriggerTime = 2f;
 
-    [Tooltip("Thời gian (giây) ghi âm sau khi kích hoạt")]
-    public float recordDuration = 3f;
+    [Tooltip("Thoi gian (giay) ghi am sau khi kich hoat")]
+    public float recordDuration = 10f;
 
-    [Tooltip("KeyCode nút controller để kích hoạt (một lần) - mặc định JoystickButton0")]
+    [Tooltip("KeyCode nut controller de kich hoat (mot lan) - mac dinh JoystickButton0")]
     public KeyCode controllerButton = KeyCode.JoystickButton0;
+
     [Tooltip("Phim ban phim de test bat/tat ghi am trong editor")]
     public KeyCode keyboardToggleKey = KeyCode.P;
 
-    [Tooltip("Layer mask cho Physics.Raycast (nếu mic là đối tượng 3D có Collider)")]
+    [Tooltip("Layer mask cho Physics.Raycast (neu mic la doi tuong 3D co Collider)")]
     public LayerMask physicsLayerMask = Physics.DefaultRaycastLayers;
-    
-    [Tooltip("Nếu có UI panel (ví dụ menu 4 nút) mở nên vô hiệu hoá gaze, kéo các panel đó vào đây")]
+
+    [Tooltip("Neu co UI panel mo nen vo hieu hoa gaze, keo cac panel do vao day")]
     public GameObject[] uiBlockers;
 
-    [Tooltip("Chỉ nhận gaze khi target là top-most UI (ổn với world-space UI)")]
+    [Tooltip("Chi nhan gaze khi target la top-most UI (on voi world-space UI)")]
     public bool requireTopmostUI = true;
 
-    float gazeTimer = 0f;
-    bool gazeTriggered = false;
+    private float gazeTimer = 0f;
+    private bool gazeTriggered = false;
 
-    Collider targetCollider;
-    RectTransform targetRect;
-    GraphicRaycaster graphicRaycaster;
-    EventSystem eventSystem;
+    private GameObject _activeMic;
+    private Collider targetCollider;
+    private RectTransform targetRect;
+    private GraphicRaycaster graphicRaycaster;
+    private EventSystem eventSystem;
 
-    void Start()
+    private readonly Dictionary<GameObject, Color> _originalColors = new Dictionary<GameObject, Color>();
+    private float _pulseTimer = 0f;
+    private bool _wasRecording = false;
+    private bool _wasBusy = false;
+
+    void Awake()
     {
         if (vrCamera == null) vrCamera = Camera.main;
-        // Auto-assign AIAudioClient nếu người dùng quên gán
+
         if (aiAudioClient == null)
         {
             aiAudioClient = FindObjectOfType<AIAudioClient>();
-            if (aiAudioClient != null) Debug.Log("GazeAndControllerMic: auto-assigned aiAudioClient from scene.");
-            else Debug.LogWarning("GazeAndControllerMic: aiAudioClient not assigned and not found in scene!");
+            if (aiAudioClient != null)
+                Debug.Log("[Gaze] Auto-assigned aiAudioClient from " + aiAudioClient.gameObject.name);
+            else
+                Debug.LogError("[Gaze] Could not find AIAudioClient in scene.");
         }
+    }
 
-        // Auto-assign micTarget bằng tên 'Mic' hoặc tìm GameObject có tên chứa 'mic'
-        if (micTarget == null)
+    void Start()
+    {
+        if (micTargets == null || micTargets.Length == 0)
         {
-            GameObject f = GameObject.Find("Mic");
-            if (f == null)
+            var found = new List<GameObject>();
+            foreach (var go in GameObject.FindObjectsOfType<GameObject>())
             {
-                var all = GameObject.FindObjectsOfType<GameObject>();
-                foreach (var go in all)
+                string lowerName = go.name.ToLower();
+                if (lowerName == "mic" || lowerName.StartsWith("mic"))
                 {
-                    if (go.name.ToLower().Contains("mic"))
-                    {
-                        f = go;
-                        break;
-                    }
+                    found.Add(go);
                 }
             }
-            micTarget = f;
-            if (micTarget != null) Debug.Log("GazeAndControllerMic: auto-assigned micTarget: " + micTarget.name);
-            else Debug.LogWarning("GazeAndControllerMic: micTarget not assigned and not found in scene!");
+
+            if (micTarget != null && !found.Contains(micTarget))
+            {
+                found.Add(micTarget);
+            }
+
+            micTargets = found.ToArray();
+            Debug.Log("[Gaze] Auto-found " + micTargets.Length + " mic target(s).");
+        }
+        else
+        {
+            Debug.Log("[Gaze] Inspector assigned " + micTargets.Length + " mic target(s).");
         }
 
-        if (micTarget != null)
+        foreach (var mic in micTargets)
         {
-            targetCollider = micTarget.GetComponent<Collider>() ?? micTarget.GetComponentInChildren<Collider>();
-            targetRect = micTarget.GetComponent<RectTransform>();
-            if (targetRect != null)
+            if (mic == null) continue;
+
+            Image img = mic.GetComponent<Image>();
+            if (img != null)
             {
-                Canvas canvas = micTarget.GetComponentInParent<Canvas>();
-                if (canvas != null)
-                {
-                    graphicRaycaster = canvas.GetComponent<GraphicRaycaster>();
-                    if (graphicRaycaster == null) graphicRaycaster = canvas.gameObject.AddComponent<GraphicRaycaster>();
-                }
+                _originalColors[mic] = img.color;
             }
         }
 
         eventSystem = EventSystem.current;
+        Debug.Log($"[Gaze] Config: gazeTriggerTime={gazeTriggerTime}s, recordDuration={recordDuration}s");
+    }
+
+    GameObject GetActiveMic()
+    {
+        if (micTargets == null) return null;
+
+        foreach (var mic in micTargets)
+        {
+            if (mic != null && mic.activeInHierarchy) return mic;
+        }
+
+        return null;
+    }
+
+    void RefreshCacheIfNeeded(GameObject mic)
+    {
+        if (mic == _activeMic) return;
+
+        _activeMic = mic;
+        if (mic == null)
+        {
+            targetCollider = null;
+            targetRect = null;
+            graphicRaycaster = null;
+            return;
+        }
+
+        targetCollider = mic.GetComponent<Collider>() ?? mic.GetComponentInChildren<Collider>();
+        targetRect = mic.GetComponent<RectTransform>();
+        if (targetRect != null)
+        {
+            Canvas canvas = mic.GetComponentInParent<Canvas>();
+            if (canvas != null)
+            {
+                graphicRaycaster = canvas.GetComponent<GraphicRaycaster>();
+                if (graphicRaycaster == null) graphicRaycaster = canvas.gameObject.AddComponent<GraphicRaycaster>();
+            }
+        }
+
+        Debug.Log("[Gaze] Active mic switched to: " + mic.name);
     }
 
     void Update()
     {
-        if (aiAudioClient == null) return;
+        if (aiAudioClient == null)
+        {
+            aiAudioClient = FindObjectOfType<AIAudioClient>();
+            if (aiAudioClient == null) return;
+        }
 
-        // Controller press: nhấn để bắt đầu ghi âm trong recordDuration giây
         if (Input.GetKeyDown(keyboardToggleKey))
         {
             aiAudioClient.ToggleRecord();
         }
 
+        GameObject currentMic = GetActiveMic();
+        RefreshCacheIfNeeded(currentMic);
+        if (currentMic == null) return;
+
+        UpdateVisualFeedback(currentMic);
+
         if (Input.GetKeyDown(controllerButton))
         {
+            Debug.Log("[Gaze] Controller button pressed.");
             if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
             {
                 aiAudioClient.StartRecordForSeconds(Mathf.CeilToInt(recordDuration));
@@ -122,9 +185,6 @@ public class GazeAndControllerMic : MonoBehaviour
             }
         }
 
-        if (micTarget == null) return;
-
-        // Gaze detection
         bool looking = IsLookingAtTarget();
         if (looking)
         {
@@ -145,18 +205,75 @@ public class GazeAndControllerMic : MonoBehaviour
         }
     }
 
+    void UpdateVisualFeedback(GameObject currentMic)
+    {
+        if (aiAudioClient == null) return;
+
+        bool isRecording = aiAudioClient.IsRecording;
+        bool isBusy = aiAudioClient.IsBusy;
+
+        if (isRecording && !_wasRecording)
+        {
+            Debug.Log("[Gaze] Recording started.");
+        }
+        if (!isRecording && _wasRecording)
+        {
+            Debug.Log("[Gaze] Recording stopped.");
+        }
+        if (isBusy && !_wasBusy && !isRecording)
+        {
+            Debug.Log("[Gaze] AI processing.");
+        }
+        if (!isBusy && _wasBusy)
+        {
+            Debug.Log("[Gaze] AI processing finished.");
+        }
+
+        _wasRecording = isRecording;
+        _wasBusy = isBusy;
+
+        foreach (var mic in micTargets)
+        {
+            if (mic == null) continue;
+
+            Image img = mic.GetComponent<Image>();
+            if (img == null) continue;
+
+            if (isRecording)
+            {
+                _pulseTimer += Time.deltaTime * 4f;
+                float alpha = 0.6f + 0.4f * Mathf.Sin(_pulseTimer);
+                img.color = new Color(1f, 0.15f, 0.15f, alpha);
+            }
+            else if (isBusy)
+            {
+                _pulseTimer += Time.deltaTime * 2f;
+                float alpha = 0.7f + 0.3f * Mathf.Sin(_pulseTimer);
+                img.color = new Color(1f, 0.85f, 0f, alpha);
+            }
+            else
+            {
+                _pulseTimer = 0f;
+                if (_originalColors.ContainsKey(mic))
+                    img.color = _originalColors[mic];
+                else
+                    img.color = Color.white;
+            }
+        }
+    }
+
     bool IsLookingAtTarget()
     {
-        if (vrCamera == null) return false;
+        if (vrCamera == null || _activeMic == null) return false;
+
         Ray ray = new Ray(vrCamera.transform.position, vrCamera.transform.forward);
         RaycastHit hit;
 
-        // Nếu mic có Collider (3D), dùng Physics.Raycast
         if (targetCollider != null)
         {
             if (Physics.Raycast(ray, out hit, 100f, physicsLayerMask))
             {
-                if (hit.collider.transform.IsChildOf(micTarget.transform) || hit.collider.transform == micTarget.transform) return true;
+                if (hit.collider.transform.IsChildOf(_activeMic.transform) || hit.collider.transform == _activeMic.transform) return true;
             }
             return false;
         }
@@ -173,12 +290,12 @@ public class GazeAndControllerMic : MonoBehaviour
 
             List<RaycastResult> results = new List<RaycastResult>();
             graphicRaycaster.Raycast(ped, results);
-            // Nếu có một UI blocker đang hiển thị thì vô hiệu hoá gaze
+
             if (uiBlockers != null)
             {
-                foreach (var b in uiBlockers)
+                foreach (var blocker in uiBlockers)
                 {
-                    if (b != null && b.activeInHierarchy) return false;
+                    if (blocker != null && blocker.activeInHierarchy) return false;
                 }
             }
 
@@ -186,19 +303,14 @@ public class GazeAndControllerMic : MonoBehaviour
 
             if (requireTopmostUI)
             {
-                // Kiểm tra chỉ top-most hit
                 var top = results[0];
-                if (top.gameObject == micTarget || top.gameObject.transform.IsChildOf(micTarget.transform)) return true;
+                if (top.gameObject == _activeMic || top.gameObject.transform.IsChildOf(_activeMic.transform)) return true;
                 return false;
             }
-            else
+
+            foreach (var result in results)
             {
-                // Mặc định: nếu bất kỳ hit nào là micTarget thì coi là nhìn vào mic
-                foreach (var r in results)
-                {
-                    if (r.gameObject == micTarget || r.gameObject.transform.IsChildOf(micTarget.transform)) return true;
-                }
-                return false;
+                if (result.gameObject == _activeMic || result.gameObject.transform.IsChildOf(_activeMic.transform)) return true;
             }
         }
 

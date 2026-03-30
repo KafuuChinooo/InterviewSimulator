@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
@@ -138,6 +138,7 @@ public class AIAudioClient : MonoBehaviour
 
     private void Start()
     {
+        serverUrl = NormalizeServerUrl(serverUrl);
         EnsureSessionId();
 
         // Tự thêm AudioSource nếu chưa có
@@ -389,7 +390,7 @@ public class AIAudioClient : MonoBehaviour
         SetStatus("Đang nhận diện giọng nói...");
 
         byte[] wavBytes = AudioClipToWav(clip);
-        string endpoint = serverUrl + "/api/stt";
+        string endpoint = BuildEndpoint("/api/stt");
 
         WWWForm form = new WWWForm();
         form.AddBinaryData("audio", wavBytes, "recording.wav", "audio/wav");
@@ -440,7 +441,7 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("AI đang xử lý...");
 
-        string endpoint = serverUrl + "/api/chat_voice";
+        string endpoint = BuildEndpoint("/api/chat_voice");
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
         { 
             session_id = sessionId,
@@ -463,6 +464,11 @@ public class AIAudioClient : MonoBehaviour
             {
                 SetStatus("Connection Error: " + req.error);
                 Debug.LogError("[AI] Chat error: " + req.error);
+                byte[] errorBytes = req.downloadHandler != null ? req.downloadHandler.data : null;
+                if (errorBytes != null && errorBytes.Length > 0)
+                {
+                    Debug.LogError("[AI] Chat error body: " + Encoding.UTF8.GetString(errorBytes));
+                }
                 _isBusy = false;
                 RefreshRecordButtons();
                 yield break;
@@ -507,7 +513,7 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("AI đang tạo kịch bản phỏng vấn...");
 
-        string endpoint = serverUrl + "/api/chat";
+        string endpoint = BuildEndpoint("/api/chat");
         string jsonBody = JsonUtility.ToJson(new ScriptRequestPayload {
             session_id = sessionId,
             message = "Generate interview script",
@@ -560,7 +566,7 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("AI đang chuẩn bị giọng nói...");
 
-        string endpoint = serverUrl + "/api/tts";
+        string endpoint = BuildEndpoint("/api/tts");
         string jsonBody = JsonUtility.ToJson(new TtsPayload {
             session_id = sessionId,
             text = text,
@@ -851,6 +857,21 @@ public class AIAudioClient : MonoBehaviour
         return language == "English"
             ? "(audio response only)"
             : "(chỉ có phản hồi bằng giọng nói)";
+    }
+
+    private string NormalizeServerUrl(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "http://127.0.0.1:8000";
+        }
+
+        return value.Trim().TrimEnd('/');
+    }
+
+    private string BuildEndpoint(string path)
+    {
+        return NormalizeServerUrl(serverUrl) + path;
     }
 
     private void EnsureSessionId()
