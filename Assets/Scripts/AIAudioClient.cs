@@ -21,7 +21,7 @@ public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
     [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
-    public string serverUrl = "http://192.168.1.3:8000";
+    public string serverUrl = "http://192.168.1.4:8000";
 
     [Header("=== AUDIO ===")]
     [Tooltip("AudioSource để phát câu trả lời của AI")]
@@ -72,10 +72,28 @@ public class AIAudioClient : MonoBehaviour
     [TextArea(3, 5)]
     public string vietnameseGreeting = "Chào bạn, chào mừng đến với VirtuHire! Tôi tên là Phương Hằng. Tôi sẽ là người phỏng vấn bạn trong buổi hôm nay. Đây là một không gian an toàn để bạn luyện tập và làm quen với các cuộc phỏng vấn. Hãy cứ thư giãn và thể hiện hết mình nhé. Chúng ta bắt đầu nào!";
 
+    [Header("=== INTERVIEW FLOW ===")]
+    [Tooltip("Tự động bật mic ghi âm sau khi AI nói xong")]
+    public bool autoContinueInterview = true;
+    [Tooltip("Thời gian chờ (giây) sau khi AI nói xong để bật mic")]
+    public float delayBeforeAutoRecord = 0.5f;
+    [Tooltip("Tự động ngắt mic khi phát hiện im lặng")]
+    public bool autoStopOnSilence = true;
+    [Tooltip("Ngưỡng âm lượng để coi là im lặng (0 - 1)")]
+    public float silenceThreshold = 0.015f;
+    [Tooltip("Số giây im lặng liên tục để tự ngắt mic")]
+    public float silenceDurationToStop = 2.5f;
+
     // --- Private state ---
     private AudioClip _recordingClip;
     private bool _isRecording = false;
     private bool _isBusy = false;
+
+    // --- Flow states ---
+    private bool _wasPlayingAudio = false;
+    private float _autoRecordTimer = 0f;
+    private bool _waitingToAutoRecord = false;
+    private float _silenceTimer = 0f;
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
@@ -86,6 +104,22 @@ public class AIAudioClient : MonoBehaviour
 
     private void Start()
     {
+        Debug.Log($"[AI] ========== AIAudioClient KHỞI ĐỘNG ==========");
+        Debug.Log($"[AI] Server URL: {serverUrl}");
+
+        // === XIN QUYỀN MICROPHONE TRÊN ANDROID ===
+        #if UNITY_ANDROID && !UNITY_EDITOR
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
+        {
+            Debug.Log("[AI] 📱 Đang xin quyền Microphone trên Android...");
+            UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Microphone);
+        }
+        else
+        {
+            Debug.Log("[AI] 📱 Quyền Microphone đã được cấp.");
+        }
+        #endif
+
         // Tự thêm AudioSource nếu chưa có
         if (audioSource == null)
         {
@@ -109,9 +143,10 @@ public class AIAudioClient : MonoBehaviour
 
         // Kiểm tra và in danh sách microphone để dễ debug
         if (Microphone.devices.Length > 0) {
-            foreach (var device in Microphone.devices) Debug.Log("Detected Mic: " + device);
+            Debug.Log("[AI] 🎤 Microphone(s) phát hiện:");
+            foreach (var device in Microphone.devices) Debug.Log("  → " + device);
         } else {
-            Debug.LogError("No Microphone detected!");
+            Debug.LogError("[AI] ❌ KHÔNG phát hiện Microphone! Trên Android: kiểm tra quyền RECORD_AUDIO.");
         }
 
         // Nếu trong scene chưa có GazeAndControllerMic, tự động thêm để tiện test
@@ -149,6 +184,77 @@ public class AIAudioClient : MonoBehaviour
                 Debug.LogWarning("[AI] Could not auto-add GazeAndControllerMic: " + ex.Message);
             }
         }
+    }
+
+    private void Update()
+    {
+        // 1. AUTO-CONTINUE: Phát hiện AI vừa nói xong
+        if (audioSource != null)
+        {
+            bool isPlaying = audioSource.isPlaying;
+            if (_wasPlayingAudio && !isPlaying)
+            {
+                // Âm thanh vừa kết thúc
+                if (autoContinueInterview && !_isBusy && !_isRecording)
+                {
+                    Debug.Log("[AI] 🎧 AI đã nói xong. Chuẩn bị bật Mic tự động...");
+                    _waitingToAutoRecord = true;
+                    _autoRecordTimer = 0f;
+                }
+            }
+            _wasPlayingAudio = isPlaying;
+        }
+
+        // Đếm ngược để bật Mic
+        if (_waitingToAutoRecord)
+        {
+            _autoRecordTimer += Time.deltaTime;
+            if (_autoRecordTimer >= delayBeforeAutoRecord)
+            {
+                _waitingToAutoRecord = false;
+                if (!_isBusy && !_isRecording)
+                {
+                    Debug.Log("[AI] 🎙️ AI FLOW: BẬT MIC TỰ ĐỘNG (Auto-Continue)");
+                    StartRecordForSeconds(maxRecordSeconds);
+                }
+            }
+        }
+
+        // 2. SILENCE DETECTION (VAD): Tự ngắt mic khi im lặng
+        if (_isRecording && autoStopOnSilence && _recordingClip != null)
+        {
+            float vol = GetMicrophoneVolume();
+            if (vol < silenceThreshold)
+            {
+                _silenceTimer += Time.deltaTime;
+                if (_silenceTimer >= silenceDurationToStop)
+                {
+                    Debug.Log($"[AI] 🔇 FLOW: Dừng mic do im lặng > {silenceDurationToStop}s");
+                    _silenceTimer = 0f; // reset trước khi ngắt
+                    OnStopAndSendClicked();
+                }
+            }
+            else
+            {
+                _silenceTimer = 0f; // Reset do có tiếng động
+            }
+        }
+    }
+
+    private float GetMicrophoneVolume()
+    {
+        if (!_isRecording || _recordingClip == null) return 0f;
+        int currentPosition = Microphone.GetPosition(null);
+        if (currentPosition < 128) return 0f;
+
+        float[] samples = new float[128];
+        _recordingClip.GetData(samples, currentPosition - 128);
+        float sum = 0f;
+        foreach (float sample in samples)
+        {
+            sum += sample * sample;
+        }
+        return Mathf.Sqrt(sum / samples.Length);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -242,17 +348,23 @@ public class AIAudioClient : MonoBehaviour
 
     public void OnStartRecordClicked()
     {
-        if (_isBusy || _isRecording) return;
+        if (_isBusy || _isRecording)
+        {
+            Debug.Log($"[AI] OnStartRecordClicked blocked: isBusy={_isBusy}, isRecording={_isRecording}");
+            return;
+        }
 
         if (Microphone.devices.Length == 0)
         {
             SetStatus("Error: No microphone found!");
+            Debug.LogError("[AI] ❌ Không tìm thấy microphone! Kiểm tra Android permission.");
             return;
         }
 
+        Debug.Log($"[AI] 🎙️ BẮT ĐẦU GHI ÂM - Mic: {Microphone.devices[0]}, Max: {maxRecordSeconds}s, Freq: 16000Hz");
         _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
         _isRecording = true;
-        SetStatus("🔴 Recording... (Press Stop when done)");
+        SetStatus("🔴 Đang ghi âm... Nhìn đi chỗ khác để dừng");
         SetStartButtonInteractable(false);
         SetStopButtonInteractable(true);
     }
@@ -267,10 +379,12 @@ public class AIAudioClient : MonoBehaviour
         SetStopButtonInteractable(false);
         SetStartButtonInteractable(true);
 
+        Debug.Log($"[AI] ⏹️ DỪNG GHI ÂM - Recorded {recordedSamples} samples ({(float)recordedSamples/16000f:F1}s)");
+
         if (recordedSamples < 100)
         {
-            SetStatus("Recording too short. Try again.");
-            // Dọn dẹp clip ghi âm lỗi
+            SetStatus("Ghi âm quá ngắn. Thử lại.");
+            Debug.LogWarning("[AI] ⚠️ Recording quá ngắn (< 100 samples). Bỏ qua.");
             if (_recordingClip != null) Destroy(_recordingClip);
             return;
         }
@@ -284,6 +398,7 @@ public class AIAudioClient : MonoBehaviour
         // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
         Destroy(_recordingClip);
 
+        Debug.Log($"[AI] 📤 Đang gửi audio lên server: {serverUrl}/api/stt ...");
         StartCoroutine(SttThenChatCoroutine(trimmed));
     }
 
@@ -298,11 +413,17 @@ public class AIAudioClient : MonoBehaviour
 
     private IEnumerator StartRecordForSecondsCoroutine(int seconds)
     {
-        if (_isBusy || _isRecording) yield break;
+        if (_isBusy || _isRecording)
+        {
+            Debug.Log($"[AI] StartRecordForSeconds blocked: isBusy={_isBusy}, isRecording={_isRecording}");
+            yield break;
+        }
+        Debug.Log($"[AI] 🎙️ === GHI ÂM TỰ ĐỘNG {seconds}s BẮT ĐẦU ===");
         int prevMax = maxRecordSeconds;
         maxRecordSeconds = Mathf.Max(maxRecordSeconds, seconds);
         OnStartRecordClicked();
         yield return new WaitForSeconds(seconds);
+        Debug.Log($"[AI] ⏹️ === GHI ÂM TỰ ĐỘNG {seconds}s KẾT THÚC ===");
         OnStopAndSendClicked();
         maxRecordSeconds = prevMax;
     }
@@ -315,44 +436,49 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator SttThenChatCoroutine(AudioClip clip)
     {
         _isBusy = true;
-        SetStatus("⏳ Recognizing speech...");
+        SetStatus("⏳ Đang nhận dạng giọng nói...");
 
         byte[] wavBytes = AudioClipToWav(clip);
         string endpoint = serverUrl + "/api/stt";
+        Debug.Log($"[AI] 📤 Gửi {wavBytes.Length} bytes WAV tới {endpoint}");
 
         WWWForm form = new WWWForm();
         form.AddBinaryData("audio", wavBytes, "recording.wav", "audio/wav");
 
         using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
         {
+            req.timeout = 60; // timeout 60 giây (Whisper STT cần ~17s trên máy này)
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("STT Error: " + req.error);
-                Debug.LogError("[AI] STT error: " + req.error);
-                Debug.Log("[AI] Response Code: " + req.responseCode);
+                string errorDetail = $"STT Error: {req.error} (Code: {req.responseCode})";
+                SetStatus("❌ " + errorDetail);
+                Debug.LogError($"[AI] ❌ STT THẤT BẠI: {errorDetail}");
+                Debug.LogError($"[AI] Kiểm tra: Server {serverUrl} có đang chạy không? Đúng IP/Port không?");
                 _isBusy = false;
                 yield break;
             }
 
             string json = req.downloadHandler.text;
-            Debug.Log("[AI] STT Raw JSON: " + json);
+            Debug.Log("[AI] ✅ STT Response: " + json);
             SttResponse sttResp = JsonUtility.FromJson<SttResponse>(json);
             string recognizedText = sttResp?.text?.Trim();
 
             if (string.IsNullOrEmpty(recognizedText))
             {
-                SetStatus("Could not recognize speech. Try again.");
+                SetStatus("⚠️ Không nhận dạng được giọng nói. Thử lại.");
+                Debug.LogWarning("[AI] ⚠️ STT trả về text rỗng!");
                 _isBusy = false;
                 yield break;
             }
 
             if (transcriptLabel) transcriptLabel.text = "🗣 You: " + recognizedText;
-            SetStatus("✅ Recognized: " + recognizedText);
-            Debug.Log("[AI] Recognized: " + recognizedText);
+            SetStatus("✅ Nhận dạng: " + recognizedText);
+            Debug.Log("[AI] 🗣 Recognized: " + recognizedText);
 
             // Tiếp tục gửi lên AI
+            Debug.Log($"[AI] 🤖 Đang gửi cho AI Gemini xử lý: {serverUrl}/api/chat_voice");
             yield return ChatVoiceCoroutine(recognizedText);
         }
     }
@@ -361,7 +487,7 @@ public class AIAudioClient : MonoBehaviour
     private IEnumerator ChatVoiceCoroutine(string message)
     {
         _isBusy = true;
-        SetStatus("🤖 AI is processing...");
+        SetStatus("🤖 AI đang suy nghĩ... Vui lòng chờ");
 
         string endpoint = serverUrl + "/api/chat_voice";
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
@@ -372,22 +498,29 @@ public class AIAudioClient : MonoBehaviour
             language = language
         });
         byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+        Debug.Log($"[AI] 🤖 Gửi tới {endpoint}: {jsonBody}");
 
         using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
         {
             req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
             req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
             req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = 120; // Timeout 120 giây (STT + Gemini + TTS cần nhiều thời gian)
 
+            Debug.Log("[AI] ⏳ Đang chờ AI phản hồi (timeout 120s)...");
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Connection Error: " + req.error);
-                Debug.LogError("[AI] Chat error: " + req.error);
+                string errorDetail = $"Chat Error: {req.error} (Code: {req.responseCode})";
+                SetStatus("❌ " + errorDetail);
+                Debug.LogError($"[AI] ❌ CHAT_VOICE THẤT BẠI: {errorDetail}");
+                Debug.LogError($"[AI] Kiểm tra server log để biết chi tiết.");
                 _isBusy = false;
                 yield break;
             }
+
+            Debug.Log($"[AI] ✅ Nhận được phản hồi! Content-Length: {req.downloadHandler.data?.Length ?? 0} bytes");
 
             AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
             if (aiClip != null)
@@ -404,6 +537,17 @@ public class AIAudioClient : MonoBehaviour
                 audioSource.Play();
                 SetStatus("🔊 AI is answering...");
                 Debug.Log("[AI] Playing response audio.");
+
+                // Lấy nội dung chữ mà AI vừa nói từ Header để hiện lên Transcript UI
+                string aiText = req.GetResponseHeader("X-Transcript");
+                if (!string.IsNullOrEmpty(aiText))
+                {
+                    aiText = System.Uri.UnescapeDataString(aiText);
+                    if (transcriptLabel)
+                    {
+                        transcriptLabel.text += "\n\n🤖 AI: " + aiText;
+                    }
+                }
             }
             else
             {
