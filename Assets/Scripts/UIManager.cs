@@ -29,7 +29,7 @@ public class UIManager : MonoBehaviour
     {
         if (aiAudioClient == null)
         {
-            aiAudioClient = FindObjectOfType<AIAudioClient>();
+            aiAudioClient = AIAudioClient.FindPreferredInstance();
         }
 
         // Khi game bắt đầu, hệ thống sẽ tự động cập nhật hiển thị, 

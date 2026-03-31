@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
@@ -20,7 +21,7 @@ using TMPro;
 public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
-    [Tooltip("URL của FastAPI server (không có dấu / ở cuối)")]
+    [Tooltip("URL của FastAPI server (không có dấu / ở cuối). Nếu chạy trên điện thoại, dùng IP LAN của PC thay vì 127.0.0.1.")]
     public string serverUrl = "http://127.0.0.1:8000";
     [Tooltip("Session id gui sang backend. Neu de trong se tu sinh.")]
     public string sessionId = "";
@@ -80,9 +81,41 @@ public class AIAudioClient : MonoBehaviour
     private bool _isBusy = false;
     private StatusKey _currentStatusKey = StatusKey.Ready;
     private string _currentStatusDetail = "";
+    private const int SttTimeoutSeconds = 60;
+    private const int ChatTimeoutSeconds = 90;
+    private const int TtsTimeoutSeconds = 60;
+    private const int AdminPollTimeoutSeconds = 120;
+    private const int AdminPollRequestTimeoutSeconds = 15;
+    private const float AdminPollIntervalSeconds = 2f;
+    private const int TtsChunkMaxCharacters = 140;
+    private const int WavConversionChunkFrames = 4096;
+    private const float AudioPlaybackGraceSeconds = 2f;
+    private const int MaxConversationHistoryMessages = 12;
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
+    private readonly List<ChatHistoryItem> _conversationHistory = new List<ChatHistoryItem>();
+
+    public static AIAudioClient FindPreferredInstance()
+    {
+        AIAudioClient[] clients = UnityEngine.Object.FindObjectsOfType<AIAudioClient>(true);
+        AIAudioClient best = null;
+        int bestScore = int.MinValue;
+
+        foreach (AIAudioClient client in clients)
+        {
+            if (client == null || !client.gameObject.scene.IsValid()) continue;
+
+            int score = client.GetAutoBindScore();
+            if (best == null || score > bestScore)
+            {
+                best = client;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
 
     private enum StatusKey
     {
@@ -95,6 +128,9 @@ public class AIAudioClient : MonoBehaviour
         MicStoppedShort,
         MicSendingAudio,
         RecognizingSpeech,
+        AwaitingAdmin,
+        AdminOverrideReceived,
+        AdminWaitTimedOut,
         SpeechNotRecognized,
         SpeechRecognizedSendingToAi,
         AiProcessing,
@@ -130,6 +166,21 @@ public class AIAudioClient : MonoBehaviour
             if (startRecordButton != null) return startRecordButton;
             return stopSendButton;
         }
+    }
+
+    private int GetAutoBindScore()
+    {
+        int score = 0;
+
+        if (startRecordButton != null || stopSendButton != null) score += 4;
+        if (statusLabel != null) score += 3;
+        if (transcriptLabel != null) score += 3;
+        if (greetingTextUI != null) score += 2;
+        if (sendTextButton != null || textInput != null) score += 2;
+        if (audioSource != null) score += 1;
+        if (gameObject.activeInHierarchy) score += 1;
+
+        return score;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -233,6 +284,7 @@ public class AIAudioClient : MonoBehaviour
     public void AskOpeningQuestion()
     {
         if (_isBusy) return;
+        ResetConversationMemory(true);
 
         string openingPrompt =
             "Start the interview now. Give one short opening line, then ask the first interview question for the candidate based on the selected role and interview type.";
@@ -341,7 +393,11 @@ public class AIAudioClient : MonoBehaviour
         {
             SetStatus("Mic đã dừng. Bản ghi quá ngắn.");
             // Dọn dẹp clip ghi âm lỗi
-            if (_recordingClip != null) Destroy(_recordingClip);
+            if (_recordingClip != null)
+            {
+                Destroy(_recordingClip);
+                _recordingClip = null;
+            }
             return;
         }
 
@@ -353,6 +409,7 @@ public class AIAudioClient : MonoBehaviour
 
         // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
         Destroy(_recordingClip);
+        _recordingClip = null;
 
         SetStatus("Mic đã dừng. Đang gửi âm thanh...");
         StartCoroutine(SttThenChatCoroutine(trimmed));
@@ -389,7 +446,26 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("Đang nhận diện giọng nói...");
 
-        byte[] wavBytes = AudioClipToWav(clip);
+        byte[] wavBytes = null;
+        try
+        {
+            yield return ConvertAudioClipToWavCoroutine(clip, bytes => wavBytes = bytes);
+        }
+        finally
+        {
+            if (clip != null)
+            {
+                Destroy(clip);
+            }
+        }
+        if (wavBytes == null || wavBytes.Length == 0)
+        {
+            SetStatus("STT Error: Could not prepare audio.");
+            Debug.LogError("[AI] Failed to convert recorded clip to WAV.");
+            _isBusy = false;
+            RefreshRecordButtons();
+            yield break;
+        }
         string endpoint = BuildEndpoint("/api/stt");
 
         WWWForm form = new WWWForm();
@@ -401,10 +477,32 @@ public class AIAudioClient : MonoBehaviour
 
         using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
         {
+            req.timeout = SttTimeoutSeconds;
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
+                string responseText = req.downloadHandler != null ? req.downloadHandler.text : "";
+                SttResponse errorResp = null;
+                if (!string.IsNullOrWhiteSpace(responseText))
+                {
+                    try
+                    {
+                        errorResp = JsonUtility.FromJson<SttResponse>(responseText);
+                    }
+                    catch (System.Exception)
+                    {
+                        errorResp = null;
+                    }
+                }
+
+                if (errorResp != null && errorResp.need_admin)
+                {
+                    Debug.LogWarning("[AI] STT needs admin override: " + (string.IsNullOrWhiteSpace(errorResp.error) ? req.error : errorResp.error));
+                    yield return WaitForAdminOverrideAndContinueCoroutine();
+                    yield break;
+                }
+
                 SetStatus("STT Error: " + req.error);
                 Debug.LogError("[AI] STT error: " + req.error);
                 Debug.Log("[AI] Response Code: " + req.responseCode);
@@ -429,77 +527,147 @@ public class AIAudioClient : MonoBehaviour
             SetStatus("Đã nhận diện giọng nói. Đang gửi đến AI...");
             Debug.Log("[AI] Recognized: " + recognizedText);
 
-            // Tiếp tục gửi lên AI
+            // Tiếp tục gửi transcript lên AI rồi tách riêng bước TTS
             yield return ChatVoiceCoroutine(recognizedText);
         }
     }
 
-    /// <summary>Bước 2: Gửi text lên /api/chat_voice → nhận WAV → phát</summary>
+    private IEnumerator WaitForAdminOverrideAndContinueCoroutine()
+    {
+        SetStatus("STT needs admin help. Waiting...");
+        float startedAt = Time.realtimeSinceStartup;
+
+        while (Time.realtimeSinceStartup - startedAt < AdminPollTimeoutSeconds)
+        {
+            string endpoint = BuildEndpoint("/api/poll_admin_message?session_id=" + UnityWebRequest.EscapeURL(sessionId));
+
+            using (UnityWebRequest req = UnityWebRequest.Get(endpoint))
+            {
+                req.timeout = AdminPollRequestTimeoutSeconds;
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    string responseText = req.downloadHandler != null ? req.downloadHandler.text : "";
+                    AdminPollResponse pollResp = null;
+                    if (!string.IsNullOrWhiteSpace(responseText))
+                    {
+                        pollResp = JsonUtility.FromJson<AdminPollResponse>(responseText);
+                    }
+
+                    string adminMessage = pollResp != null ? pollResp.message : null;
+                    adminMessage = string.IsNullOrWhiteSpace(adminMessage) ? null : adminMessage.Trim();
+                    if (pollResp != null && pollResp.has_message && !string.IsNullOrWhiteSpace(adminMessage))
+                    {
+                        Debug.Log("[AI] Received admin override. Continuing interview.");
+                        SetStatus("Received admin input. Sending to AI...");
+                        yield return ChatVoiceCoroutine(adminMessage);
+                        yield break;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("[AI] Poll admin message failed: " + req.error);
+                }
+            }
+
+            yield return new WaitForSeconds(AdminPollIntervalSeconds);
+        }
+
+        SetStatus("Timed out waiting for admin. Please try again.");
+        _isBusy = false;
+        RefreshRecordButtons();
+    }
+
+    /// <summary>Bước 2: Gửi text lên /api/chat → nhận full text → Bước 3: TTS theo từng đoạn</summary>
     private IEnumerator ChatVoiceCoroutine(string message)
     {
         _isBusy = true;
         RefreshRecordButtons();
         SetStatus("AI đang xử lý...");
 
-        string endpoint = BuildEndpoint("/api/chat_voice");
+        string endpoint = BuildEndpoint("/api/chat");
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
         { 
             session_id = sessionId,
             message = message,
             job_title = jobTitle,
             interview_type = interviewType,
-            language = language
+            language = language,
+            history = BuildHistorySnapshot()
         });
         byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
 
         using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
         {
             req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
-            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+            req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = ChatTimeoutSeconds;
 
             yield return req.SendWebRequest();
 
+            string responseText = req.downloadHandler != null ? req.downloadHandler.text : "";
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Connection Error: " + req.error);
-                Debug.LogError("[AI] Chat error: " + req.error);
-                byte[] errorBytes = req.downloadHandler != null ? req.downloadHandler.data : null;
-                if (errorBytes != null && errorBytes.Length > 0)
+                string serverError = ExtractErrorMessage(responseText);
+                string errorDetail = string.IsNullOrWhiteSpace(serverError) ? req.error : serverError;
+                ChatResponse errorResp = null;
+                if (!string.IsNullOrWhiteSpace(responseText))
                 {
-                    Debug.LogError("[AI] Chat error body: " + Encoding.UTF8.GetString(errorBytes));
+                    try
+                    {
+                        errorResp = JsonUtility.FromJson<ChatResponse>(responseText);
+                    }
+                    catch (System.Exception)
+                    {
+                        errorResp = null;
+                    }
                 }
+
+                if (errorResp != null && errorResp.need_admin)
+                {
+                    Debug.LogWarning("[AI] Chat needs admin override: " + errorDetail);
+                    yield return WaitForAdminOverrideAndContinueCoroutine();
+                    yield break;
+                }
+
+                SetStatus("Connection Error: " + errorDetail);
+                Debug.LogError("[AI] Chat error: " + errorDetail);
+                if (!string.IsNullOrWhiteSpace(responseText))
+                    Debug.LogError("[AI] Chat error body: " + responseText);
                 _isBusy = false;
                 RefreshRecordButtons();
                 yield break;
             }
 
-            AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
-            if (aiClip != null)
+            ChatResponse chatResp = null;
+            if (!string.IsNullOrWhiteSpace(responseText))
             {
-                string aiTranscript = req.GetResponseHeader("X-Transcript");
-                SetAiTranscriptText(
-                    !string.IsNullOrEmpty(aiTranscript)
-                        ? UnityWebRequest.UnEscapeURL(aiTranscript)
-                        : null);
+                chatResp = JsonUtility.FromJson<ChatResponse>(responseText);
+            }
 
-                if (audioSource.isPlaying) audioSource.Stop();
+            string aiText = chatResp != null ? chatResp.response : null;
+            aiText = string.IsNullOrWhiteSpace(aiText) ? null : aiText.Trim();
 
-                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
-                if (audioSource.clip != null) 
+            if (string.IsNullOrWhiteSpace(aiText))
+            {
+                string errorDetail = ExtractErrorMessage(responseText);
+                if (string.IsNullOrWhiteSpace(errorDetail))
                 {
-                    Destroy(audioSource.clip);
+                    errorDetail = "AI returned an empty answer.";
                 }
 
-                audioSource.clip = aiClip;
-                audioSource.Play();
-                SetStatus("AI đang trả lời...");
-                Debug.Log("[AI] Playing response audio.");
+                SetStatus("Connection Error: " + errorDetail);
+                Debug.LogError("[AI] Empty chat response: " + responseText);
+                _isBusy = false;
+                RefreshRecordButtons();
+                yield break;
             }
-            else
-            {
-                SetStatus("Không đọc được âm thanh phản hồi từ AI.");
-            }
+
+            AppendConversationTurn(message, aiText);
+            SetAiTranscriptText(aiText);
+            yield return SpeakTextChunksCoroutine(aiText);
         }
 
         _isBusy = false;
@@ -528,6 +696,7 @@ public class AIAudioClient : MonoBehaviour
             req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = ChatTimeoutSeconds;
 
             yield return req.SendWebRequest();
 
@@ -564,64 +733,290 @@ public class AIAudioClient : MonoBehaviour
     {
         _isBusy = true;
         RefreshRecordButtons();
-        SetStatus("AI đang chuẩn bị giọng nói...");
-
-        string endpoint = BuildEndpoint("/api/tts");
-        string jsonBody = JsonUtility.ToJson(new TtsPayload {
-            session_id = sessionId,
-            text = text,
-            language = this.language
-        });
-        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
-
-        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
-        {
-            req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
-            req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
-            req.SetRequestHeader("Content-Type", "application/json");
-
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                SetStatus("TTS Error: " + req.error);
-                Debug.LogError("[AI] TTS error: " + req.error);
-                _isBusy = false;
-                RefreshRecordButtons();
-                yield break;
-            }
-
-            AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
-            if (aiClip != null)
-            {
-                SetAiTranscriptText(text);
-
-                if (audioSource.isPlaying) audioSource.Stop();
-
-                // TIÊU DIỆT rác bộ nhớ trước khi gán clip mới
-                if (audioSource.clip != null) 
-                {
-                    Destroy(audioSource.clip);
-                }
-
-                audioSource.clip = aiClip;
-                audioSource.Play();
-                SetStatus("AI đang nói...");
-                Debug.Log("[AI] Playing TTS audio.");
-            }
-            else
-            {
-                SetStatus("Không đọc được âm thanh giọng nói của AI.");
-            }
-        }
+        SetAiTranscriptText(text);
+        yield return SpeakTextChunksCoroutine(text);
 
         _isBusy = false;
         RefreshRecordButtons();
     }
 
+    private IEnumerator SpeakTextChunksCoroutine(string fullText)
+    {
+        List<string> chunks = SplitTextForTts(fullText, TtsChunkMaxCharacters);
+        if (chunks.Count == 0)
+        {
+            SetStatus("TTS Error: Empty text.");
+            yield break;
+        }
+
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            string chunk = chunks[i];
+            SetStatus("AI đang chuẩn bị giọng nói...");
+
+            string endpoint = BuildEndpoint("/api/tts");
+            string jsonBody = JsonUtility.ToJson(new TtsPayload {
+                session_id = sessionId,
+                text = chunk,
+                language = this.language
+            });
+            byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+
+            using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+            {
+                req.uploadHandler   = new UploadHandlerRaw(bodyBytes);
+                req.downloadHandler = new DownloadHandlerAudioClip(endpoint, AudioType.WAV);
+                req.SetRequestHeader("Content-Type", "application/json");
+                req.timeout = TtsTimeoutSeconds;
+
+                yield return req.SendWebRequest();
+
+                if (req.result != UnityWebRequest.Result.Success)
+                {
+                    SetStatus("TTS Error: " + req.error);
+                    Debug.LogError("[AI] TTS error: " + req.error);
+                    byte[] errorBytes = req.downloadHandler != null ? req.downloadHandler.data : null;
+                    if (errorBytes != null && errorBytes.Length > 0)
+                    {
+                        Debug.LogError("[AI] TTS error body: " + Encoding.UTF8.GetString(errorBytes));
+                    }
+                    yield break;
+                }
+
+                AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
+                if (aiClip == null)
+                {
+                    SetStatus("Không đọc được âm thanh giọng nói của AI.");
+                    yield break;
+                }
+
+                if (audioSource.isPlaying) audioSource.Stop();
+                if (audioSource.clip != null)
+                {
+                    Destroy(audioSource.clip);
+                    audioSource.clip = null;
+                }
+
+                audioSource.clip = aiClip;
+                audioSource.Play();
+                SetStatus("AI đang nói...");
+                Debug.Log($"[AI] Playing TTS chunk {i + 1}/{chunks.Count}.");
+
+                yield return WaitForAudioPlaybackOrTimeout(aiClip, i + 1, chunks.Count);
+            }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────────────────────────
+
+    private List<string> SplitTextForTts(string text, int maxCharacters)
+    {
+        var chunks = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return chunks;
+
+        string normalized = Regex.Replace(text.Trim(), @"\s+", " ");
+        string[] sentences = Regex.Split(normalized, @"(?<=[\.\!\?\;\:])\s+");
+        var current = new StringBuilder();
+
+        foreach (string rawSentence in sentences)
+        {
+            string sentence = rawSentence.Trim();
+            if (string.IsNullOrWhiteSpace(sentence)) continue;
+
+            if (sentence.Length > maxCharacters)
+            {
+                FlushChunk(chunks, current);
+                AppendLongSentenceChunks(chunks, sentence, maxCharacters);
+                continue;
+            }
+
+            int nextLength = current.Length == 0
+                ? sentence.Length
+                : current.Length + 1 + sentence.Length;
+
+            if (nextLength > maxCharacters)
+            {
+                FlushChunk(chunks, current);
+            }
+
+            if (current.Length > 0) current.Append(' ');
+            current.Append(sentence);
+        }
+
+        FlushChunk(chunks, current);
+        return chunks;
+    }
+
+    private void AppendLongSentenceChunks(List<string> chunks, string sentence, int maxCharacters)
+    {
+        string[] words = sentence.Split(' ');
+        var current = new StringBuilder();
+
+        foreach (string word in words)
+        {
+            if (string.IsNullOrWhiteSpace(word)) continue;
+
+            int nextLength = current.Length == 0
+                ? word.Length
+                : current.Length + 1 + word.Length;
+
+            if (nextLength > maxCharacters && current.Length > 0)
+            {
+                chunks.Add(current.ToString());
+                current.Length = 0;
+            }
+
+            if (current.Length > 0) current.Append(' ');
+            current.Append(word);
+        }
+
+        if (current.Length > 0)
+        {
+            chunks.Add(current.ToString());
+        }
+    }
+
+    private void FlushChunk(List<string> chunks, StringBuilder current)
+    {
+        if (current.Length == 0) return;
+        chunks.Add(current.ToString());
+        current.Length = 0;
+    }
+
+    private string ExtractErrorMessage(string rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson)) return null;
+
+        try
+        {
+            ChatResponse chatResponse = JsonUtility.FromJson<ChatResponse>(rawJson);
+            if (chatResponse != null && !string.IsNullOrWhiteSpace(chatResponse.error))
+            {
+                return chatResponse.error.Trim();
+            }
+        }
+        catch (System.Exception)
+        {
+            // Nếu backend trả text thuần thay vì JSON thì fallback về raw body.
+        }
+
+        return rawJson.Trim();
+    }
+
+    private IEnumerator ConvertAudioClipToWavCoroutine(AudioClip clip, System.Action<byte[]> onCompleted)
+    {
+        if (clip == null)
+        {
+            onCompleted?.Invoke(null);
+            yield break;
+        }
+
+        int hz = clip.frequency;
+        int channels = clip.channels;
+        int totalFrames = clip.samples;
+        int dataSize = totalFrames * channels * 2;
+        int fullChunkSampleCount = WavConversionChunkFrames * channels;
+
+        float[] fullChunkSamples = new float[fullChunkSampleCount];
+        byte[] fullChunkBytes = new byte[fullChunkSampleCount * 2];
+        float[] tailChunkSamples = null;
+        byte[] tailChunkBytes = null;
+
+        using (MemoryStream stream = new MemoryStream(44 + dataSize))
+        using (BinaryWriter writer = new BinaryWriter(stream))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataSize);
+            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+            writer.Write(Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)channels);
+            writer.Write(hz);
+            writer.Write(hz * channels * 2);
+            writer.Write((short)(channels * 2));
+            writer.Write((short)16);
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataSize);
+
+            for (int frameOffset = 0; frameOffset < totalFrames; frameOffset += WavConversionChunkFrames)
+            {
+                int framesToRead = Mathf.Min(WavConversionChunkFrames, totalFrames - frameOffset);
+                int sampleCount = framesToRead * channels;
+
+                float[] sampleBuffer;
+                byte[] byteBuffer;
+
+                if (sampleCount == fullChunkSampleCount)
+                {
+                    sampleBuffer = fullChunkSamples;
+                    byteBuffer = fullChunkBytes;
+                }
+                else
+                {
+                    if (tailChunkSamples == null || tailChunkSamples.Length != sampleCount)
+                    {
+                        tailChunkSamples = new float[sampleCount];
+                        tailChunkBytes = new byte[sampleCount * 2];
+                    }
+
+                    sampleBuffer = tailChunkSamples;
+                    byteBuffer = tailChunkBytes;
+                }
+
+                if (!clip.GetData(sampleBuffer, frameOffset))
+                {
+                    Debug.LogError("[AI] Failed to read recorded clip data for WAV conversion.");
+                    onCompleted?.Invoke(null);
+                    yield break;
+                }
+
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    short pcmSample = (short)(Mathf.Clamp(sampleBuffer[i], -1f, 1f) * 32767f);
+                    int byteIndex = i * 2;
+                    byteBuffer[byteIndex] = (byte)(pcmSample & 0xFF);
+                    byteBuffer[byteIndex + 1] = (byte)((pcmSample >> 8) & 0xFF);
+                }
+
+                writer.Write(byteBuffer, 0, sampleCount * 2);
+                yield return null;
+            }
+
+            onCompleted?.Invoke(stream.ToArray());
+        }
+    }
+
+    private IEnumerator WaitForAudioPlaybackOrTimeout(AudioClip clip, int chunkIndex, int chunkCount)
+    {
+        if (audioSource == null || clip == null) yield break;
+
+        float startedAt = Time.realtimeSinceStartup;
+        float maxWaitSeconds = Mathf.Max(clip.length + AudioPlaybackGraceSeconds, 5f);
+
+        while (audioSource != null && audioSource.clip == clip)
+        {
+            float elapsed = Time.realtimeSinceStartup - startedAt;
+            if (elapsed > maxWaitSeconds)
+            {
+                Debug.LogWarning($"[AI] TTS chunk {chunkIndex}/{chunkCount} exceeded playback wait ({elapsed:F1}s). Forcing next chunk.");
+                if (audioSource.isPlaying)
+                {
+                    audioSource.Stop();
+                }
+                break;
+            }
+
+            if (!audioSource.isPlaying && elapsed > 0.1f)
+            {
+                break;
+            }
+
+            yield return null;
+        }
+    }
 
     private void SetStatus(string msg)
     {
@@ -691,6 +1086,24 @@ public class AIAudioClient : MonoBehaviour
         if (msg == "Äang nháº­n diá»‡n giá»ng nÃ³i..." || msg == "Recognizing speech...")
         {
             key = StatusKey.RecognizingSpeech;
+            return;
+        }
+
+        if (msg == "STT needs admin help. Waiting...")
+        {
+            key = StatusKey.AwaitingAdmin;
+            return;
+        }
+
+        if (msg == "Received admin input. Sending to AI...")
+        {
+            key = StatusKey.AdminOverrideReceived;
+            return;
+        }
+
+        if (msg == "Timed out waiting for admin. Please try again.")
+        {
+            key = StatusKey.AdminWaitTimedOut;
             return;
         }
 
@@ -810,6 +1223,12 @@ public class AIAudioClient : MonoBehaviour
                 return isEnglish ? "Mic stopped. Sending audio..." : "Mic đã dừng. Đang gửi âm thanh...";
             case StatusKey.RecognizingSpeech:
                 return isEnglish ? "Recognizing speech..." : "Đang nhận diện giọng nói...";
+            case StatusKey.AwaitingAdmin:
+                return isEnglish ? "STT needs admin help. Waiting..." : "STT cần admin hỗ trợ. Đang chờ...";
+            case StatusKey.AdminOverrideReceived:
+                return isEnglish ? "Received admin input. Sending to AI..." : "Đã nhận nội dung từ admin. Đang gửi đến AI...";
+            case StatusKey.AdminWaitTimedOut:
+                return isEnglish ? "Timed out waiting for admin. Please try again." : "Hết thời gian chờ admin. Hãy thử lại.";
             case StatusKey.SpeechNotRecognized:
                 return isEnglish ? "Speech was not recognized. Please try again." : "Không nhận diện được giọng nói. Hãy thử lại.";
             case StatusKey.SpeechRecognizedSendingToAi:
@@ -874,11 +1293,69 @@ public class AIAudioClient : MonoBehaviour
         return NormalizeServerUrl(serverUrl) + path;
     }
 
+    private void ResetConversationMemory(bool renewSessionId)
+    {
+        _conversationHistory.Clear();
+
+        if (!renewSessionId) return;
+
+        sessionId = CreateSessionId();
+        Debug.Log("[AI] Reset conversation memory. New session id: " + sessionId);
+    }
+
+    private ChatHistoryItem[] BuildHistorySnapshot()
+    {
+        int count = Mathf.Min(_conversationHistory.Count, MaxConversationHistoryMessages);
+        ChatHistoryItem[] snapshot = new ChatHistoryItem[count];
+        int startIndex = _conversationHistory.Count - count;
+
+        for (int i = 0; i < count; i++)
+        {
+            ChatHistoryItem item = _conversationHistory[startIndex + i];
+            snapshot[i] = new ChatHistoryItem
+            {
+                role = item.role,
+                content = item.content
+            };
+        }
+
+        return snapshot;
+    }
+
+    private void AppendConversationTurn(string userMessage, string aiMessage)
+    {
+        AppendHistoryItem("user", userMessage);
+        AppendHistoryItem("assistant", aiMessage);
+    }
+
+    private void AppendHistoryItem(string role, string content)
+    {
+        string normalizedContent = string.IsNullOrWhiteSpace(content) ? null : content.Trim();
+        if (string.IsNullOrEmpty(normalizedContent)) return;
+
+        _conversationHistory.Add(new ChatHistoryItem
+        {
+            role = role,
+            content = normalizedContent
+        });
+
+        int overflow = _conversationHistory.Count - MaxConversationHistoryMessages;
+        if (overflow > 0)
+        {
+            _conversationHistory.RemoveRange(0, overflow);
+        }
+    }
+
+    private string CreateSessionId()
+    {
+        return "unity-" + System.Guid.NewGuid().ToString("N");
+    }
+
     private void EnsureSessionId()
     {
         if (!string.IsNullOrWhiteSpace(sessionId)) return;
 
-        sessionId = "unity-" + System.Guid.NewGuid().ToString("N");
+        sessionId = CreateSessionId();
         Debug.Log("[AI] Generated session id: " + sessionId);
     }
 
@@ -922,47 +1399,6 @@ public class AIAudioClient : MonoBehaviour
         SetStopButtonInteractable(!_isBusy && _isRecording);
     }
 
-    private static byte[] AudioClipToWav(AudioClip clip)
-    {
-        float[] samples = new float[clip.samples * clip.channels];
-        clip.GetData(samples, 0);
-
-        short[] intData = new short[samples.Length];
-        byte[] bytesData = new byte[samples.Length * 2];
-        for (int i = 0; i < samples.Length; i++)
-        {
-            intData[i] = (short)(samples[i] * 32767f);
-            byte[] byteArr = System.BitConverter.GetBytes(intData[i]);
-            bytesData[i * 2]     = byteArr[0];
-            bytesData[i * 2 + 1] = byteArr[1];
-        }
-
-        using (MemoryStream stream = new MemoryStream())
-        using (BinaryWriter writer = new BinaryWriter(stream))
-        {
-            int hz        = clip.frequency;
-            int channels  = clip.channels;
-            int dataSize  = bytesData.Length;
-
-            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-            writer.Write(36 + dataSize);
-            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-            writer.Write(Encoding.ASCII.GetBytes("fmt "));
-            writer.Write(16);          // chunk size
-            writer.Write((short)1);    // PCM
-            writer.Write((short)channels);
-            writer.Write(hz);
-            writer.Write(hz * channels * 2);
-            writer.Write((short)(channels * 2));
-            writer.Write((short)16);   // bits per sample
-            writer.Write(Encoding.ASCII.GetBytes("data"));
-            writer.Write(dataSize);
-            writer.Write(bytesData);
-
-            return stream.ToArray();
-        }
-    }
-
     // ─────────────────────────────────────────────────────────────
     // JSON Models
     // ─────────────────────────────────────────────────────────────
@@ -972,8 +1408,33 @@ public class AIAudioClient : MonoBehaviour
         public string job_title;
         public string interview_type;
         public string language;
+        public ChatHistoryItem[] history;
     }
-    [System.Serializable] private class SttResponse  { public string text; }
+    [System.Serializable] private class ChatHistoryItem
+    {
+        public string role;
+        public string content;
+    }
+    [System.Serializable] private class SttResponse
+    {
+        public string text;
+        public string error;
+        public bool need_admin;
+        public string session_id;
+    }
+    [System.Serializable] private class AdminPollResponse
+    {
+        public bool has_message;
+        public string message;
+    }
+    [System.Serializable] private class ChatResponse
+    {
+        public string response;
+        public string role;
+        public string error;
+        public bool need_admin;
+        public string session_id;
+    }
     [System.Serializable] private class TtsPayload   { 
         public string session_id;
         public string text; 

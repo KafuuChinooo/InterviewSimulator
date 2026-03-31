@@ -5981,6 +5981,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   serverUrl: http://127.0.0.1:8000
+  sessionId: 
   audioSource: {fileID: 982762765}
   textInput: {fileID: 0}
   sendTextButton: {fileID: 0}
@@ -6006,11 +6007,6 @@ MonoBehaviour:
     v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
     th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
     b\u1EAFt \u0111\u1EA7u n\xE0o!"
-  autoContinueInterview: 1
-  delayBeforeAutoRecord: 0.5
-  autoStopOnSilence: 1
-  silenceThreshold: 0.015
-  silenceDurationToStop: 2.5
 --- !u!1 &332739729
 GameObject:
   m_ObjectHideFlags: 0
@@ -6095,6 +6091,7 @@ MonoBehaviour:
   selectedPosition: 
   getReadyPositionTextEng: {fileID: 874329740}
   getReadyPositionTextViet: {fileID: 1617012135}
+  aiAudioClient: {fileID: 1698216205}
   screens:
   - {fileID: 409811184}
   - {fileID: 665064997}
@@ -6104,6 +6101,7 @@ MonoBehaviour:
   - {fileID: 1659792790}
   - {fileID: 277203260}
   currentScreenIndex: 0
+  autoAskScreenIndex: 5
 --- !u!4 &341152588
 Transform:
   m_ObjectHideFlags: 0
@@ -29904,7 +29902,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 85a8f40cfa2a4e241a55498d07ed573a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverUrl: http://192.168.1.4:8000
+  serverUrl: http://127.0.0.1:8000
+  sessionId: 
   audioSource: {fileID: 982762765}
   textInput: {fileID: 0}
   sendTextButton: {fileID: 0}
@@ -29930,11 +29929,6 @@ MonoBehaviour:
     v\xE0 l\xE0m quen v\u1EDBi c\xE1c cu\u1ED9c ph\u1ECFng v\u1EA5n. H\xE3y c\u1EE9
     th\u01B0 gi\xE3n v\xE0 th\u1EC3 hi\u1EC7n h\u1EBFt m\xECnh nh\xE9. Ch\xFAng ta
     b\u1EAFt \u0111\u1EA7u n\xE0o!"
-  autoContinueInterview: 1
-  delayBeforeAutoRecord: 0.5
-  autoStopOnSilence: 1
-  silenceThreshold: 0.015
-  silenceDurationToStop: 2.5
 --- !u!4 &1698216206
 Transform:
   m_ObjectHideFlags: 0
@@ -29962,7 +29956,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1736998d4f2b41c41a62f855e0932818, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  aiAudioClient: {fileID: 0}
+  aiAudioClient: {fileID: 1698216205}
   micTargets:
   - {fileID: 213676144}
   - {fileID: 1132226830}
@@ -29971,6 +29965,7 @@ MonoBehaviour:
   gazeTriggerTime: 1.5
   recordDuration: 10
   controllerButton: 330
+  keyboardToggleKey: 112
   physicsLayerMask:
     serializedVersion: 2
     m_Bits: 51

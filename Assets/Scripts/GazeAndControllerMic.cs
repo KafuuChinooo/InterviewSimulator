@@ -63,7 +63,7 @@ public class GazeAndControllerMic : MonoBehaviour
 
         if (aiAudioClient == null)
         {
-            aiAudioClient = FindObjectOfType<AIAudioClient>();
+            aiAudioClient = AIAudioClient.FindPreferredInstance();
             if (aiAudioClient != null)
                 Debug.Log("[Gaze] Auto-assigned aiAudioClient from " + aiAudioClient.gameObject.name);
             else
@@ -157,7 +157,7 @@ public class GazeAndControllerMic : MonoBehaviour
     {
         if (aiAudioClient == null)
         {
-            aiAudioClient = FindObjectOfType<AIAudioClient>();
+            aiAudioClient = AIAudioClient.FindPreferredInstance();
             if (aiAudioClient == null) return;
         }
 
