@@ -1,4 +1,5 @@
 {
+    "python.defaultInterpreterPath": "E:\\1\\d\\InterviewSimulator\\.AI\\AI\\venv\\Scripts\\python.exe",
     "files.exclude": {
         "**/.DS_Store": true,
         "**/.git": true,

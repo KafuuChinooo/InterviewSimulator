@@ -5,7 +5,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Kich hoat ghi am khi nguoi dung nhin vao bat ky mic nao trong `micTargets`
-/// trong `gazeTriggerTime` giay hoac nhan `controllerButton`.
+/// trong `gazeTriggerTime` giay hoac nhan nut X tren tay cam.
+/// Nut O tren tay cam se click UI dang nam o tam man hinh.
 /// Script tu dong chon mic dang active trong scene va hien thi visual feedback.
 /// </summary>
 public class GazeAndControllerMic : MonoBehaviour
@@ -25,11 +26,14 @@ public class GazeAndControllerMic : MonoBehaviour
     [Tooltip("Thoi gian (giay) nhin lien tuc vao mic de kich hoat")]
     public float gazeTriggerTime = 2f;
 
-    [Tooltip("Thoi gian (giay) ghi am sau khi kich hoat")]
-    public float recordDuration = 10f;
+    [Tooltip("Thoi gian (giay) ghi am toi da sau khi kich hoat")]
+    public float recordDuration = 60f;
 
-    [Tooltip("KeyCode nut controller de kich hoat (mot lan) - mac dinh JoystickButton0")]
+    [Tooltip("KeyCode nut controller de bat/tat mic - mac dinh JoystickButton0 (PS X)")]
     public KeyCode controllerButton = KeyCode.JoystickButton0;
+
+    [Tooltip("KeyCode nut controller de click UI o tam man hinh - mac dinh JoystickButton1 (PS O)")]
+    public KeyCode controllerClickButton = KeyCode.JoystickButton1;
 
     [Tooltip("Phim ban phim de test bat/tat ghi am trong editor")]
     public KeyCode keyboardToggleKey = KeyCode.P;
@@ -110,7 +114,7 @@ public class GazeAndControllerMic : MonoBehaviour
         }
 
         eventSystem = EventSystem.current;
-        Debug.Log($"[Gaze] Config: gazeTriggerTime={gazeTriggerTime}s, recordDuration={recordDuration}s");
+        Debug.Log($"[Gaze] Config: gazeTriggerTime={gazeTriggerTime}s, recordDuration={recordDuration}s, micButton={controllerButton}, clickButton={controllerClickButton}");
     }
 
     GameObject GetActiveMic()
@@ -168,22 +172,20 @@ public class GazeAndControllerMic : MonoBehaviour
 
         GameObject currentMic = GetActiveMic();
         RefreshCacheIfNeeded(currentMic);
-        if (currentMic == null) return;
-
-        UpdateVisualFeedback(currentMic);
 
         if (Input.GetKeyDown(controllerButton))
         {
-            Debug.Log("[Gaze] Controller button pressed.");
-            if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
-            {
-                aiAudioClient.StartRecordForSeconds(Mathf.CeilToInt(recordDuration));
-            }
-            else if (aiAudioClient.IsRecording)
-            {
-                aiAudioClient.OnStopAndSendClicked();
-            }
+            HandleControllerMicToggle();
         }
+
+        if (Input.GetKeyDown(controllerClickButton))
+        {
+            TryClickCenterTarget();
+        }
+
+        if (currentMic == null) return;
+
+        UpdateVisualFeedback(currentMic);
 
         bool looking = IsLookingAtTarget();
         if (looking)
@@ -192,10 +194,7 @@ public class GazeAndControllerMic : MonoBehaviour
             if (!gazeTriggered && gazeTimer >= gazeTriggerTime)
             {
                 gazeTriggered = true;
-                if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
-                {
-                    aiAudioClient.StartRecordForSeconds(Mathf.CeilToInt(recordDuration));
-                }
+                StartTimedRecordingIfPossible();
             }
         }
         else
@@ -315,5 +314,120 @@ public class GazeAndControllerMic : MonoBehaviour
         }
 
         return false;
+    }
+
+    void HandleControllerMicToggle()
+    {
+        Debug.Log("[Gaze] Controller mic button pressed.");
+
+        if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
+        {
+            StartTimedRecordingIfPossible();
+        }
+        else if (aiAudioClient.IsRecording)
+        {
+            aiAudioClient.OnStopAndSendClicked();
+        }
+    }
+
+    void StartTimedRecordingIfPossible()
+    {
+        if (aiAudioClient == null || aiAudioClient.IsRecording || aiAudioClient.IsBusy) return;
+
+        aiAudioClient.StartRecordForSeconds(Mathf.CeilToInt(recordDuration));
+    }
+
+    bool TryClickCenterTarget()
+    {
+        if (eventSystem == null) eventSystem = EventSystem.current;
+        if (eventSystem == null)
+        {
+            Debug.LogWarning("[Gaze] Cannot click center UI because EventSystem is missing.");
+            return false;
+        }
+
+        PointerEventData pointerData = new PointerEventData(eventSystem)
+        {
+            position = GetScreenCenter(),
+            button = PointerEventData.InputButton.Left
+        };
+
+        GameObject clickTarget = FindCenterClickTarget(pointerData);
+        if (clickTarget == null)
+        {
+            Debug.Log("[Gaze] Controller click button pressed but no center UI target was found.");
+            return false;
+        }
+
+        Button uiButton = clickTarget.GetComponent<Button>() ?? clickTarget.GetComponentInParent<Button>();
+        if (uiButton != null)
+        {
+            if (!uiButton.IsActive() || !uiButton.interactable)
+            {
+                Debug.Log("[Gaze] Center UI target is not interactable: " + uiButton.gameObject.name);
+                return false;
+            }
+
+            uiButton.onClick.Invoke();
+            Debug.Log("[Gaze] Invoked centered Button.onClick on: " + uiButton.gameObject.name);
+            return true;
+        }
+
+        bool clicked = ExecuteEvents.Execute(clickTarget, pointerData, ExecuteEvents.pointerClickHandler);
+        ExecuteEvents.Execute(clickTarget, pointerData, ExecuteEvents.submitHandler);
+        if (clicked)
+        {
+            Debug.Log("[Gaze] Executed centered pointer click on: " + clickTarget.name);
+        }
+        else
+        {
+            Debug.Log("[Gaze] Center target did not accept pointer click: " + clickTarget.name);
+        }
+
+        return clicked;
+    }
+
+    GameObject FindCenterClickTarget(PointerEventData pointerData)
+    {
+        List<RaycastResult> raycastResults = new List<RaycastResult>();
+        eventSystem.RaycastAll(pointerData, raycastResults);
+
+        foreach (RaycastResult result in raycastResults)
+        {
+            GameObject clickHandler = ExecuteEvents.GetEventHandler<IPointerClickHandler>(result.gameObject);
+            if (clickHandler != null)
+            {
+                return clickHandler;
+            }
+        }
+
+        if (vrCamera != null)
+        {
+            Ray ray = new Ray(vrCamera.transform.position, vrCamera.transform.forward);
+            RaycastHit hit;
+            if (Physics.Raycast(ray, out hit, 100f, physicsLayerMask))
+            {
+                GameObject hitObject = hit.collider.gameObject;
+                Button uiButton = hitObject.GetComponent<Button>() ?? hitObject.GetComponentInParent<Button>();
+                if (uiButton != null)
+                {
+                    return uiButton.gameObject;
+                }
+
+                return ExecuteEvents.GetEventHandler<IPointerClickHandler>(hitObject);
+            }
+        }
+
+        return null;
+    }
+
+    Vector2 GetScreenCenter()
+    {
+        if (vrCamera != null)
+        {
+            return vrCamera.ViewportToScreenPoint(new Vector3(0.5f, 0.5f, 0f));
+        }
+
+        return new Vector2(Screen.width / 2f, Screen.height / 2f);
     }
 }

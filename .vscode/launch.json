@@ -2,6 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "AI Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}\\.AI\\AI\\main.py",
+            "python": "E:\\1\\d\\InterviewSimulator\\.AI\\AI\\venv\\Scripts\\python.exe",
+            "cwd": "${workspaceFolder}\\.AI\\AI",
+            "console": "integratedTerminal",
+            "env": {
+                "HOST": "0.0.0.0",
+                "PORT": "8000"
+            }
+        },
+        {
             "name": "Attach to Unity",
             "type": "vstuc",
             "request": "attach"

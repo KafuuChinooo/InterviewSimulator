@@ -22,7 +22,7 @@ public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
     [Tooltip("URL của FastAPI server (không có dấu / ở cuối). Nếu chạy trên điện thoại, dùng IP LAN của PC thay vì 127.0.0.1.")]
-    public string serverUrl = "http://127.0.0.1:8000";
+    public string serverUrl = "http://192.168.1.22:8000";
     [Tooltip("Session id gui sang backend. Neu de trong se tu sinh.")]
     public string sessionId = "";
 
@@ -42,7 +42,7 @@ public class AIAudioClient : MonoBehaviour
     [Tooltip("Button 'Dừng và Gửi'")]
     public Button stopSendButton;
     [Tooltip("Số giây ghi âm tối đa")]
-    public int maxRecordSeconds = 10;
+    public int maxRecordSeconds = 60;
 
     [Header("=== DEFAULT SCRIPT MODE UI ===")]
     [Tooltip("Button để đọc đoạn text mặc định")]
@@ -77,6 +77,7 @@ public class AIAudioClient : MonoBehaviour
 
     // --- Private state ---
     private AudioClip _recordingClip;
+    private Coroutine _autoStopRecordingCoroutine;
     private bool _isRecording = false;
     private bool _isBusy = false;
     private StatusKey _currentStatusKey = StatusKey.Ready;
@@ -383,6 +384,8 @@ public class AIAudioClient : MonoBehaviour
     {
         if (!_isRecording) return;
 
+        CancelAutoStopRecording();
+
         int recordedSamples = Microphone.GetPosition(null);
         Microphone.End(null);
         _isRecording = false;
@@ -421,18 +424,33 @@ public class AIAudioClient : MonoBehaviour
     /// </summary>
     public void StartRecordForSeconds(int seconds)
     {
-        StartCoroutine(StartRecordForSecondsCoroutine(seconds));
+        if (_isBusy || _isRecording) return;
+
+        maxRecordSeconds = Mathf.Max(maxRecordSeconds, Mathf.Max(1, seconds));
+        OnStartRecordClicked();
+        if (!_isRecording) return;
+
+        CancelAutoStopRecording();
+        _autoStopRecordingCoroutine = StartCoroutine(AutoStopRecordingAfterDelayCoroutine(Mathf.Max(1, seconds)));
     }
 
-    private IEnumerator StartRecordForSecondsCoroutine(int seconds)
+    private IEnumerator AutoStopRecordingAfterDelayCoroutine(int seconds)
     {
-        if (_isBusy || _isRecording) yield break;
-        int prevMax = maxRecordSeconds;
-        maxRecordSeconds = Mathf.Max(maxRecordSeconds, seconds);
-        OnStartRecordClicked();
         yield return new WaitForSeconds(seconds);
-        OnStopAndSendClicked();
-        maxRecordSeconds = prevMax;
+
+        _autoStopRecordingCoroutine = null;
+        if (_isRecording)
+        {
+            OnStopAndSendClicked();
+        }
+    }
+
+    private void CancelAutoStopRecording()
+    {
+        if (_autoStopRecordingCoroutine == null) return;
+
+        StopCoroutine(_autoStopRecordingCoroutine);
+        _autoStopRecordingCoroutine = null;
     }
 
     // ─────────────────────────────────────────────────────────────

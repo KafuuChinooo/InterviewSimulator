@@ -5987,7 +5987,7 @@ MonoBehaviour:
   sendTextButton: {fileID: 0}
   startRecordButton: {fileID: 0}
   stopSendButton: {fileID: 0}
-  maxRecordSeconds: 10
+  maxRecordSeconds: 60
   readDefaultScriptButton: {fileID: 0}
   defaultScript: hi, this is kafuuchino speaking. you did good today
   jobTitle: Data Analyst
@@ -29902,14 +29902,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 85a8f40cfa2a4e241a55498d07ed573a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverUrl: http://127.0.0.1:8000
+  serverUrl: https://nonfunded-xzavier-evenly.ngrok-free.dev
   sessionId: 
   audioSource: {fileID: 982762765}
   textInput: {fileID: 0}
   sendTextButton: {fileID: 0}
   startRecordButton: {fileID: 1132226832}
   stopSendButton: {fileID: 0}
-  maxRecordSeconds: 10
+  maxRecordSeconds: 60
   readDefaultScriptButton: {fileID: 0}
   defaultScript: Hello, this is automatically generated text.
   jobTitle: Data Analyst
@@ -29963,8 +29963,9 @@ MonoBehaviour:
   micTarget: {fileID: 0}
   vrCamera: {fileID: 0}
   gazeTriggerTime: 1.5
-  recordDuration: 10
+  recordDuration: 60
   controllerButton: 330
+  controllerClickButton: 331
   keyboardToggleKey: 112
   physicsLayerMask:
     serializedVersion: 2
