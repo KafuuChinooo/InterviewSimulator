@@ -78,8 +78,12 @@ public class AIAudioClient : MonoBehaviour
     // --- Private state ---
     private AudioClip _recordingClip;
     private Coroutine _autoStopRecordingCoroutine;
+    private Coroutine _startRecordingCoroutine;
     private bool _isRecording = false;
     private bool _isBusy = false;
+    private bool _isStartingRecording = false;
+    private int _pendingAutoStopSeconds = 0;
+    private string _activeMicrophoneDevice = "";
     private StatusKey _currentStatusKey = StatusKey.Ready;
     private string _currentStatusDetail = "";
     private const int SttTimeoutSeconds = 60;
@@ -92,6 +96,7 @@ public class AIAudioClient : MonoBehaviour
     private const int WavConversionChunkFrames = 4096;
     private const float AudioPlaybackGraceSeconds = 2f;
     private const int MaxConversationHistoryMessages = 12;
+    private const float MicrophoneStartTimeoutSeconds = 2f;
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
@@ -124,6 +129,9 @@ public class AIAudioClient : MonoBehaviour
         EmptyQuestion,
         DefaultScriptEmpty,
         NoMicrophone,
+        MicPermissionRequired,
+        MicStarting,
+        MicStartFailed,
         MicRecording,
         MicStopped,
         MicStoppedShort,
@@ -184,6 +192,243 @@ public class AIAudioClient : MonoBehaviour
         return score;
     }
 
+    private bool HasMicrophonePermission()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        return UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone);
+#else
+        return true;
+#endif
+    }
+
+    private void RequestMicrophonePermissionIfNeeded()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
+        {
+            UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Microphone);
+        }
+#endif
+    }
+
+    private string GetPreferredMicrophoneDevice()
+    {
+        string[] devices = Microphone.devices;
+        if (devices == null || devices.Length == 0)
+        {
+            _activeMicrophoneDevice = "";
+            return "";
+        }
+
+        if (!string.IsNullOrEmpty(_activeMicrophoneDevice))
+        {
+            foreach (string device in devices)
+            {
+                if (device == _activeMicrophoneDevice)
+                {
+                    return _activeMicrophoneDevice;
+                }
+            }
+        }
+
+        _activeMicrophoneDevice = devices[0];
+        return _activeMicrophoneDevice;
+    }
+
+    private void StartRecordingInternal(int autoStopSeconds)
+    {
+        if (_isBusy || _isRecording || _isStartingRecording) return;
+
+        RequestMicrophonePermissionIfNeeded();
+        if (!HasMicrophonePermission())
+        {
+            SetStatus("Ứng dụng cần quyền micro. Hãy cho phép rồi thử lại.");
+            return;
+        }
+
+        string microphoneDevice = GetPreferredMicrophoneDevice();
+        if (string.IsNullOrEmpty(microphoneDevice))
+        {
+            SetStatus("Error: No microphone found!");
+            return;
+        }
+
+        CancelAutoStopRecording();
+        _pendingAutoStopSeconds = Mathf.Max(0, autoStopSeconds);
+        if (_recordingClip != null)
+        {
+            Destroy(_recordingClip);
+            _recordingClip = null;
+        }
+
+        if (_startRecordingCoroutine != null)
+        {
+            StopCoroutine(_startRecordingCoroutine);
+        }
+
+        _startRecordingCoroutine = StartCoroutine(BeginRecordingCoroutine(microphoneDevice));
+    }
+
+    private IEnumerator BeginRecordingCoroutine(string microphoneDevice)
+    {
+        _isStartingRecording = true;
+        RefreshRecordButtons();
+        SetStatus("Đang khởi tạo micro...");
+
+        _recordingClip = Microphone.Start(microphoneDevice, false, maxRecordSeconds, 16000);
+        if (_recordingClip == null)
+        {
+            _startRecordingCoroutine = null;
+            _isStartingRecording = false;
+            _pendingAutoStopSeconds = 0;
+            SetStatus("Không thể khởi động micro.");
+            RefreshRecordButtons();
+            yield break;
+        }
+
+        float startedAt = Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup - startedAt < MicrophoneStartTimeoutSeconds)
+        {
+            if (Microphone.GetPosition(microphoneDevice) > 0)
+            {
+                _activeMicrophoneDevice = microphoneDevice;
+                _startRecordingCoroutine = null;
+                _isStartingRecording = false;
+                _isRecording = true;
+                SetStatus("Mic đang ghi âm...");
+                RefreshRecordButtons();
+
+                if (_pendingAutoStopSeconds > 0)
+                {
+                    CancelAutoStopRecording();
+                    _autoStopRecordingCoroutine = StartCoroutine(AutoStopRecordingAfterDelayCoroutine(_pendingAutoStopSeconds));
+                }
+
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        Microphone.End(microphoneDevice);
+        _startRecordingCoroutine = null;
+        _isStartingRecording = false;
+        _pendingAutoStopSeconds = 0;
+        if (_recordingClip != null)
+        {
+            Destroy(_recordingClip);
+            _recordingClip = null;
+        }
+
+        SetStatus("Không thể khởi động micro.");
+        RefreshRecordButtons();
+    }
+
+    private bool IsSpeechRecognitionFailure(string detail, long responseCode)
+    {
+        if (responseCode == 422) return true;
+        if (string.IsNullOrWhiteSpace(detail)) return false;
+
+        string normalized = detail.Trim().ToLowerInvariant();
+        return normalized.Contains("recognize speech")
+            || normalized.Contains("empty transcript")
+            || normalized.Contains("speech was not recognized")
+            || normalized.Contains("could not recognize speech");
+    }
+
+    private void TryAutoAttachLipSync()
+    {
+        try
+        {
+            AutoLipSync lipSync = FindObjectOfType<AutoLipSync>(true);
+            if (lipSync == null)
+            {
+                SkinnedMeshRenderer preferredRenderer = FindPreferredLipSyncRenderer();
+                if (preferredRenderer == null)
+                {
+                    Debug.LogWarning("[AI] Could not find a SkinnedMeshRenderer with blend shapes for lip sync.");
+                    return;
+                }
+
+                lipSync = preferredRenderer.GetComponent<AutoLipSync>();
+                if (lipSync == null)
+                {
+                    lipSync = preferredRenderer.gameObject.AddComponent<AutoLipSync>();
+                }
+
+                lipSync.skinnedMeshRenderer = preferredRenderer;
+                lipSync.blendShapeName = ResolvePreferredBlendShapeName(preferredRenderer);
+            }
+
+            lipSync.audioSource = audioSource;
+            Debug.Log("[AI] Auto-attached lip sync to " + lipSync.gameObject.name + " using blend shape '" + lipSync.blendShapeName + "'.");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning("[AI] Could not auto-attach AutoLipSync: " + ex.Message);
+        }
+    }
+
+    private SkinnedMeshRenderer FindPreferredLipSyncRenderer()
+    {
+        SkinnedMeshRenderer[] renderers = FindObjectsOfType<SkinnedMeshRenderer>(true);
+        SkinnedMeshRenderer best = null;
+        int bestScore = int.MinValue;
+
+        foreach (SkinnedMeshRenderer renderer in renderers)
+        {
+            if (renderer == null || renderer.sharedMesh == null) continue;
+            Mesh mesh = renderer.sharedMesh;
+            if (mesh.blendShapeCount == 0) continue;
+
+            int score = mesh.blendShapeCount;
+            string rendererName = renderer.gameObject.name.ToLowerInvariant();
+            if (rendererName.Contains("hrr")) score += 40;
+            if (rendererName.Contains("mouth")) score += 30;
+            if (renderer.transform.root.name.ToLowerInvariant().Contains("hr")) score += 20;
+            if (renderer.gameObject.activeInHierarchy) score += 5;
+
+            for (int i = 0; i < mesh.blendShapeCount; i++)
+            {
+                string blendShapeName = mesh.GetBlendShapeName(i).ToLowerInvariant();
+                if (blendShapeName == "hrr") score += 100;
+                else if (blendShapeName.Contains("mouth")) score += 50;
+                else if (blendShapeName.Contains("open")) score += 20;
+                else if (blendShapeName.Contains("jaw")) score += 15;
+            }
+
+            if (best == null || score > bestScore)
+            {
+                best = renderer;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
+
+    private string ResolvePreferredBlendShapeName(SkinnedMeshRenderer renderer)
+    {
+        if (renderer == null || renderer.sharedMesh == null || renderer.sharedMesh.blendShapeCount == 0)
+        {
+            return "HRR";
+        }
+
+        Mesh mesh = renderer.sharedMesh;
+        string fallback = mesh.GetBlendShapeName(0);
+        for (int i = 0; i < mesh.blendShapeCount; i++)
+        {
+            string candidate = mesh.GetBlendShapeName(i);
+            string lowerCandidate = candidate.ToLowerInvariant();
+            if (lowerCandidate == "hrr" || lowerCandidate.Contains("mouth") || lowerCandidate.Contains("open") || lowerCandidate.Contains("jaw"))
+            {
+                return candidate;
+            }
+        }
+
+        return fallback;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Unity Lifecycle
     // ─────────────────────────────────────────────────────────────
@@ -192,6 +437,7 @@ public class AIAudioClient : MonoBehaviour
     {
         serverUrl = NormalizeServerUrl(serverUrl);
         EnsureSessionId();
+        RequestMicrophonePermissionIfNeeded();
 
         // Tự thêm AudioSource nếu chưa có
         if (audioSource == null)
@@ -255,6 +501,8 @@ public class AIAudioClient : MonoBehaviour
                 Debug.LogWarning("[AI] Could not auto-add GazeAndControllerMic: " + ex.Message);
             }
         }
+
+        TryAutoAttachLipSync();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -350,11 +598,11 @@ public class AIAudioClient : MonoBehaviour
 
     public void ToggleRecord()
     {
-        if (_isBusy) return;
+        if (_isBusy || _isStartingRecording) return;
         
         if (!_isRecording)
         {
-            OnStartRecordClicked();
+            StartRecordForSeconds(maxRecordSeconds);
             Debug.Log("[AI] Vừa bật ghi âm bằng nút Mic.");
         }
         else
@@ -366,33 +614,29 @@ public class AIAudioClient : MonoBehaviour
 
     public void OnStartRecordClicked()
     {
-        if (_isBusy || _isRecording) return;
-
-        if (Microphone.devices.Length == 0)
-        {
-            SetStatus("Error: No microphone found!");
-            return;
-        }
-
-        _recordingClip = Microphone.Start(null, false, maxRecordSeconds, 16000);
-        _isRecording = true;
-        SetStatus("Mic đang ghi âm...");
-        RefreshRecordButtons();
+        StartRecordingInternal(0);
     }
 
     public void OnStopAndSendClicked()
     {
-        if (!_isRecording) return;
+        if (_isStartingRecording || !_isRecording) return;
 
         CancelAutoStopRecording();
+        _pendingAutoStopSeconds = 0;
 
-        int recordedSamples = Microphone.GetPosition(null);
-        Microphone.End(null);
+        string microphoneDevice = GetPreferredMicrophoneDevice();
+        if (string.IsNullOrEmpty(microphoneDevice))
+        {
+            microphoneDevice = null;
+        }
+
+        int recordedSamples = Mathf.Max(0, Microphone.GetPosition(microphoneDevice));
+        Microphone.End(microphoneDevice);
         _isRecording = false;
         RefreshRecordButtons();
         SetStatus("Mic đã dừng.");
 
-        if (recordedSamples < 100)
+        if (_recordingClip == null || recordedSamples < 100)
         {
             SetStatus("Mic đã dừng. Bản ghi quá ngắn.");
             // Dọn dẹp clip ghi âm lỗi
@@ -424,14 +668,11 @@ public class AIAudioClient : MonoBehaviour
     /// </summary>
     public void StartRecordForSeconds(int seconds)
     {
-        if (_isBusy || _isRecording) return;
+        if (_isBusy || _isRecording || _isStartingRecording) return;
 
-        maxRecordSeconds = Mathf.Max(maxRecordSeconds, Mathf.Max(1, seconds));
-        OnStartRecordClicked();
-        if (!_isRecording) return;
-
-        CancelAutoStopRecording();
-        _autoStopRecordingCoroutine = StartCoroutine(AutoStopRecordingAfterDelayCoroutine(Mathf.Max(1, seconds)));
+        int clampedSeconds = Mathf.Max(1, seconds);
+        maxRecordSeconds = Mathf.Max(maxRecordSeconds, clampedSeconds);
+        StartRecordingInternal(clampedSeconds);
     }
 
     private IEnumerator AutoStopRecordingAfterDelayCoroutine(int seconds)
@@ -516,13 +757,36 @@ public class AIAudioClient : MonoBehaviour
 
                 if (errorResp != null && errorResp.need_admin)
                 {
-                    Debug.LogWarning("[AI] STT needs admin override: " + (string.IsNullOrWhiteSpace(errorResp.error) ? req.error : errorResp.error));
-                    yield return WaitForAdminOverrideAndContinueCoroutine();
+                    string adminError = string.IsNullOrWhiteSpace(errorResp.error) ? req.error : errorResp.error;
+                    if (IsSpeechRecognitionFailure(adminError, req.responseCode))
+                    {
+                        SetStatus("Không nhận diện được giọng nói. Hãy thử lại.");
+                    }
+                    else
+                    {
+                        SetStatus("STT Error: " + adminError);
+                    }
+
+                    Debug.LogWarning("[AI] Ignoring admin-wait STT fallback in Unity flow: " + adminError);
+                    _isBusy = false;
+                    RefreshRecordButtons();
                     yield break;
                 }
 
-                SetStatus("STT Error: " + req.error);
-                Debug.LogError("[AI] STT error: " + req.error);
+                string errorDetail = errorResp != null && !string.IsNullOrWhiteSpace(errorResp.error)
+                    ? errorResp.error.Trim()
+                    : req.error;
+
+                if (IsSpeechRecognitionFailure(errorDetail, req.responseCode))
+                {
+                    SetStatus("Không nhận diện được giọng nói. Hãy thử lại.");
+                }
+                else
+                {
+                    SetStatus("STT Error: " + errorDetail);
+                }
+
+                Debug.LogError("[AI] STT error: " + errorDetail);
                 Debug.Log("[AI] Response Code: " + req.responseCode);
                 _isBusy = false;
                 RefreshRecordButtons();
@@ -1077,6 +1341,24 @@ public class AIAudioClient : MonoBehaviour
             return;
         }
 
+        if (msg == "Ứng dụng cần quyền micro. Hãy cho phép rồi thử lại." || msg == "Microphone permission is required. Please allow it and try again.")
+        {
+            key = StatusKey.MicPermissionRequired;
+            return;
+        }
+
+        if (msg == "Đang khởi tạo micro..." || msg == "Starting microphone...")
+        {
+            key = StatusKey.MicStarting;
+            return;
+        }
+
+        if (msg == "Không thể khởi động micro." || msg == "Could not start microphone.")
+        {
+            key = StatusKey.MicStartFailed;
+            return;
+        }
+
         if (msg == "Mic Ä‘ang ghi Ã¢m..." || msg == "Mic is recording...")
         {
             key = StatusKey.MicRecording;
@@ -1231,6 +1513,12 @@ public class AIAudioClient : MonoBehaviour
                 return isEnglish ? "Default script is empty." : "Kịch bản mặc định đang trống.";
             case StatusKey.NoMicrophone:
                 return isEnglish ? "No microphone found." : "Không tìm thấy microphone.";
+            case StatusKey.MicPermissionRequired:
+                return isEnglish ? "Microphone permission is required. Please allow it and try again." : "Ứng dụng cần quyền micro. Hãy cho phép rồi thử lại.";
+            case StatusKey.MicStarting:
+                return isEnglish ? "Starting microphone..." : "Đang khởi tạo micro...";
+            case StatusKey.MicStartFailed:
+                return isEnglish ? "Could not start microphone." : "Không thể khởi động micro.";
             case StatusKey.MicRecording:
                 return isEnglish ? "Mic is recording..." : "Mic đang ghi âm...";
             case StatusKey.MicStopped:
@@ -1409,12 +1697,12 @@ public class AIAudioClient : MonoBehaviour
         if (UseSingleRecordButton)
         {
             Button recordButton = ActiveRecordButton;
-            if (recordButton) recordButton.interactable = !_isBusy;
+            if (recordButton) recordButton.interactable = !_isBusy && !_isStartingRecording;
             return;
         }
 
-        SetStartButtonInteractable(!_isBusy && !_isRecording);
-        SetStopButtonInteractable(!_isBusy && _isRecording);
+        SetStartButtonInteractable(!_isBusy && !_isRecording && !_isStartingRecording);
+        SetStopButtonInteractable(!_isBusy && _isRecording && !_isStartingRecording);
     }
 
     // ─────────────────────────────────────────────────────────────
