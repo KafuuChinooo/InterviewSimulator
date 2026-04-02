@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+Jinja2
+pydantic
+python-dotenv
+faster-whisper
+piper-tts
+google-genai
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+sounddevice
+soundfile
+numpy

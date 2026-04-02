@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VirtuHire Web Client</title>
+    <style>
+        :root {
+            --bg: #0d1321;
+            --panel: #151e30;
+            --panel-soft: #1d2940;
+            --text: #eef4ff;
+            --muted: #8fa1c2;
+            --accent: #3dd9b1;
+            --accent-2: #4f7cff;
+            --danger: #ff6b6b;
+            --border: rgba(255,255,255,0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Segoe UI, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(79,124,255,0.18), transparent 30%),
+                radial-gradient(circle at bottom right, rgba(61,217,177,0.12), transparent 30%),
+                var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+        }
+        .sidebar, .main {
+            padding: 24px;
+        }
+        .sidebar {
+            border-right: 1px solid var(--border);
+            background: rgba(10, 15, 27, 0.45);
+        }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+        h1, h2, h3, p { margin-top: 0; }
+        h1 { font-size: 28px; margin-bottom: 8px; }
+        .muted { color: var(--muted); }
+        label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        input, select, button, textarea {
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--text);
+            padding: 12px 14px;
+            font: inherit;
+        }
+        textarea { min-height: 120px; resize: vertical; }
+        button {
+            cursor: pointer;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent-2), var(--accent));
+            color: white;
+        }
+        .ghost {
+            background: transparent;
+        }
+        .main {
+            display: grid;
+            grid-template-rows: 1fr auto;
+            gap: 16px;
+        }
+        .chat {
+            background: rgba(21, 30, 48, 0.75);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 18px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        .bubble {
+            max-width: 78%;
+            padding: 14px 16px;
+            border-radius: 18px;
+            margin-bottom: 12px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+        }
+        .user { margin-left: auto; background: #3556c9; }
+        .assistant { background: #22314d; }
+        .system { background: #4c2d2d; color: #ffd7d7; }
+        .composer {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 12px;
+            align-items: center;
+        }
+        .status {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 10px;
+        }
+        a { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="card">
+            <h1>VirtuHire</h1>
+            <p class="muted">Session-aware web client for testing the same FastAPI backend used by Unity.</p>
+        </div>
+
+        <div class="card">
+            <label for="jobTitle">Job Title</label>
+            <input id="jobTitle" value="Data Analyst">
+
+            <label for="interviewType" style="margin-top:12px;">Interview Type</label>
+            <select id="interviewType">
+                <option>Attitude Interview</option>
+                <option>Role-Specific Interview</option>
+            </select>
+
+            <label for="language" style="margin-top:12px;">Language</label>
+            <select id="language">
+                <option>Vietnamese</option>
+                <option>English</option>
+            </select>
+
+            <label for="sessionId" style="margin-top:12px;">Session Id</label>
+            <input id="sessionId">
+            <p class="status">Admin console: <a href="/admin" target="_blank">open dashboard</a></p>
+        </div>
+
+        <div class="card">
+            <button onclick="resetSession()">Start New Session</button>
+        </div>
+    </aside>
+
+    <main class="main">
+        <section class="chat" id="chatBox"></section>
+        <section class="card">
+            <div class="composer">
+                <input id="msgInput" placeholder="Type a player message" onkeypress="handleEnter(event)">
+                <button class="ghost" id="micBtn" onclick="toggleRecording()">Mic</button>
+                <button id="sendBtn" onclick="sendMessage()">Send</button>
+            </div>
+            <div class="status" id="statusText">Ready.</div>
+        </section>
+    </main>
+
+    <script>
+        let chatHistory = [];
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let currentAudio = null;
+        let adminWaitInProgress = false;
+
+        function newSessionId() {
+            return `web-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        }
+
+        function getSessionId() {
+            return document.getElementById('sessionId').value.trim();
+        }
+
+        function setStatus(text) {
+            document.getElementById('statusText').innerText = text;
+        }
+
+        function addMessage(text, role) {
+            const box = document.getElementById('chatBox');
+            const item = document.createElement('div');
+            item.className = `bubble ${role}`;
+            item.innerText = text;
+            box.appendChild(item);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function handleEnter(event) {
+            if (event.key === 'Enter') sendMessage();
+        }
+
+        function currentPayloadBase() {
+            return {
+                session_id: getSessionId(),
+                job_title: document.getElementById('jobTitle').value.trim(),
+                interview_type: document.getElementById('interviewType').value,
+                language: document.getElementById('language').value,
+            };
+        }
+
+        function resetSession() {
+            document.getElementById('sessionId').value = newSessionId();
+            chatHistory = [];
+            document.getElementById('chatBox').innerHTML = '';
+            addMessage('Session created. Messages from this client will appear in the admin dashboard.', 'assistant');
+            setStatus('New session ready.');
+        }
+
+        async function sendMessageWithText(message) {
+            if (!message) return;
+            addMessage(message, 'user');
+            chatHistory.push({ role: 'user', content: message });
+            setStatus('Sending message to AI...');
+
+            const payload = {
+                ...currentPayloadBase(),
+                message,
+                history: chatHistory.slice(0, -1),
+            };
+
+            try {
+                const response = await fetch('/api/chat_voice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Chat request failed.');
+                }
+
+                const transcript = decodeURIComponent(response.headers.get('x-transcript') || 'No transcript received.');
+                addMessage(transcript, 'assistant');
+                chatHistory.push({ role: 'assistant', content: transcript });
+
+                const blob = await response.blob();
+                if (currentAudio) currentAudio.pause();
+                currentAudio = new Audio(URL.createObjectURL(blob));
+                currentAudio.play();
+                setStatus('AI response received.');
+            } catch (error) {
+                addMessage(error.message, 'system');
+                setStatus('Chat failed.');
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('msgInput');
+            const message = input.value.trim();
+            if (!message) return;
+            input.value = '';
+            await sendMessageWithText(message);
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function waitForAdminOverride() {
+            if (adminWaitInProgress) return;
+
+            adminWaitInProgress = true;
+            addMessage('STT failed. Waiting for admin correction...', 'system');
+            setStatus('STT needs admin help. Waiting for admin...');
+
+            const startedAt = Date.now();
+            const timeoutMs = 120000;
+
+            try {
+                while (Date.now() - startedAt < timeoutMs) {
+                    const response = await fetch(`/api/poll_admin_message?session_id=${encodeURIComponent(getSessionId())}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const message = (data.message || '').trim();
+                        if (data.has_message && message) {
+                            setStatus('Admin provided a fallback transcript. Sending to AI...');
+                            await sendMessageWithText(message);
+                            return;
+                        }
+                    }
+
+                    await delay(2000);
+                }
+
+                addMessage('Admin did not send a fallback transcript in time.', 'system');
+                setStatus('Admin fallback timed out.');
+            } finally {
+                adminWaitInProgress = false;
+            }
+        }
+
+        async function toggleRecording() {
+            const micBtn = document.getElementById('micBtn');
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = event => {
+                        if (event.data.size > 0) audioChunks.push(event.data);
+                    };
+                    mediaRecorder.onstop = sendRecordedAudio;
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.innerText = 'Stop';
+                    setStatus('Recording...');
+                } catch (error) {
+                    setStatus('Microphone permission denied.');
+                }
+                return;
+            }
+
+            mediaRecorder.stop();
+            isRecording = false;
+            micBtn.innerText = 'Mic';
+        }
+
+        async function sendRecordedAudio() {
+            setStatus('Sending audio to STT...');
+            const formData = new FormData();
+            formData.append('audio', new Blob(audioChunks, { type: 'audio/webm' }), 'voice.webm');
+            const base = currentPayloadBase();
+            Object.entries(base).forEach(([key, value]) => formData.append(key, value));
+
+            try {
+                const response = await fetch('/api/stt', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (!response.ok) {
+                    if (data.need_admin) {
+                        await waitForAdminOverride();
+                        return;
+                    }
+
+                    throw new Error(data.error || 'STT failed.');
+                }
+
+                document.getElementById('msgInput').value = data.text || '';
+                setStatus('STT succeeded.');
+                if (data.text) await sendMessage();
+            } catch (error) {
+                addMessage(error.message, 'system');
+                setStatus('STT needs admin intervention.');
+            }
+        }
+
+        resetSession();
+    </script>
+</body>
+</html>

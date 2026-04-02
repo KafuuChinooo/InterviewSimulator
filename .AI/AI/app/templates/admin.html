@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VirtuHire Admin Dashboard</title>
+    <style>
+        :root {
+            --bg: #0b111d;
+            --panel: #131d31;
+            --panel-soft: #1a2943;
+            --border: rgba(255,255,255,0.08);
+            --text: #edf4ff;
+            --muted: #8ea2c5;
+            --accent: #63e6be;
+            --warn: #ffd166;
+            --danger: #ff6b6b;
+            --selected: #27406d;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Segoe UI, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(99,230,190,0.08), transparent 30%),
+                radial-gradient(circle at top right, rgba(79,124,255,0.12), transparent 30%),
+                var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 340px 1fr 360px;
+        }
+        .col {
+            min-height: 100vh;
+            border-right: 1px solid var(--border);
+            padding: 18px;
+        }
+        .col:last-child { border-right: 0; }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        h1, h2, h3, p { margin-top: 0; }
+        .muted { color: var(--muted); }
+        .session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: calc(100vh - 180px);
+            overflow-y: auto;
+        }
+        .session-item {
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            cursor: pointer;
+        }
+        .session-item.selected { background: var(--selected); }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-right: 6px;
+        }
+        .badge-warn { background: rgba(255,209,102,0.15); color: var(--warn); }
+        .badge-ok { background: rgba(99,230,190,0.15); color: var(--accent); }
+        .badge-idle { background: rgba(255,255,255,0.12); color: var(--muted); }
+        .timeline {
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .entry {
+            padding: 14px;
+            border-radius: 14px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            white-space: pre-wrap;
+            line-height: 1.45;
+        }
+        .entry .meta {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        textarea, button, input {
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--text);
+            padding: 12px 14px;
+            font: inherit;
+        }
+        textarea { min-height: 160px; resize: vertical; }
+        button {
+            cursor: pointer;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4f7cff, #63e6be);
+            color: white;
+        }
+        .danger { background: linear-gradient(135deg, #c44536, #ff6b6b); }
+        .summary {
+            display: grid;
+            gap: 8px;
+            font-size: 14px;
+        }
+        .inline-actions, .session-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+        .ghost-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            padding: 8px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.04);
+            color: var(--text);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .ghost-link:hover {
+            background: rgba(99,230,190,0.12);
+        }
+        .empty {
+            color: var(--muted);
+            padding: 18px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <section class="col">
+        <div class="panel">
+            <h1>Admin Console</h1>
+            <p class="muted">Watch all Unity and web sessions, detect STT failure, and inject manual transcript or admin guidance.</p>
+            <button onclick="refreshAll()">Refresh Now</button>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+    </section>
+
+    <section class="col">
+        <div class="panel">
+            <h2 id="sessionTitle">No session selected</h2>
+            <div class="summary" id="sessionSummary">
+                <div class="muted">Pick a session from the left.</div>
+            </div>
+        </div>
+        <div class="timeline" id="timeline">
+            <div class="empty">No logs loaded.</div>
+        </div>
+    </section>
+
+    <section class="col">
+        <div class="panel">
+            <h2>Manual Rescue</h2>
+            <p class="muted">When STT fails, type the real player message here. Unity will poll it and continue the interview flow with that text.</p>
+            <textarea id="adminMessage" placeholder="Type the corrected player sentence or an admin instruction for the selected session."></textarea>
+            <button class="danger" onclick="sendAdminMessage()">Send To Selected Session</button>
+            <p class="muted" id="sendStatus"></p>
+        </div>
+    </section>
+
+    <script>
+        let selectedSessionId = null;
+
+        function formatTime(ts) {
+            return new Date(ts * 1000).toLocaleString();
+        }
+
+        function statusBadge(status, pending) {
+            if (pending || status === 'needs_admin') return '<span class="badge badge-warn">needs admin</span>';
+            if (status === 'ok' || status === 'admin_override_sent' || status === 'admin_override_queued') return '<span class="badge badge-ok">active</span>';
+            return '<span class="badge badge-idle">idle</span>';
+        }
+
+        function reportLink(sessionId) {
+            return `/admin/report/${encodeURIComponent(sessionId)}`;
+        }
+
+        async function refreshSessions() {
+            const response = await fetch('/api/admin/sessions');
+            const data = await response.json();
+            const list = document.getElementById('sessionList');
+            list.innerHTML = '';
+
+            if (!data.sessions.length) {
+                list.innerHTML = '<div class="empty">No sessions yet.</div>';
+                return;
+            }
+
+            data.sessions.forEach(session => {
+                const item = document.createElement('div');
+                item.className = `session-item ${session.session_id === selectedSessionId ? 'selected' : ''}`;
+                item.onclick = () => selectSession(session.session_id);
+                const reportAction = `<div class="session-actions"><a class="ghost-link" href="${reportLink(session.session_id)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Open report</a></div>`;
+                item.innerHTML = `
+                    <div>${statusBadge(session.stt_status, session.pending_admin_input)} <strong>${session.job_title}</strong></div>
+                    <div class="muted">${session.session_id}</div>
+                    <div class="muted">${session.language} | ${session.interview_type}</div>
+                    <div class="muted">Last seen: ${formatTime(session.last_seen)}</div>
+                    <div class="muted">Report: ${session.report_available ? 'ready' : (session.completed_interview ? 'can generate' : 'waiting for completion')}</div>
+                    ${reportAction}
+                `;
+                list.appendChild(item);
+            });
+
+            if (!selectedSessionId && data.sessions.length) {
+                selectSession(data.sessions[0].session_id);
+            }
+        }
+
+        async function refreshLogs() {
+            const title = document.getElementById('sessionTitle');
+            const summary = document.getElementById('sessionSummary');
+            const timeline = document.getElementById('timeline');
+
+            if (!selectedSessionId) {
+                title.innerText = 'No session selected';
+                summary.innerHTML = '<div class="muted">Pick a session from the left.</div>';
+                timeline.innerHTML = '<div class="empty">No logs loaded.</div>';
+                return;
+            }
+
+            const [logsResponse, sessionsResponse] = await Promise.all([
+                fetch(`/api/logs?session_id=${encodeURIComponent(selectedSessionId)}`),
+                fetch('/api/admin/sessions')
+            ]);
+            const logsData = await logsResponse.json();
+            const sessionsData = await sessionsResponse.json();
+            const session = sessionsData.sessions.find(item => item.session_id === selectedSessionId);
+
+            if (session) {
+                const openReportAction = `<div class="inline-actions"><a class="ghost-link" href="${reportLink(session.session_id)}" target="_blank" rel="noopener">Open performance report</a></div>`;
+                title.innerText = `${session.job_title} (${session.session_id})`;
+                summary.innerHTML = `
+                    <div>${statusBadge(session.stt_status, session.pending_admin_input)} ${session.language} | ${session.interview_type}</div>
+                    <div>Latest player: ${session.latest_user_message || '-'}</div>
+                    <div>Latest AI: ${session.latest_ai_message || '-'}</div>
+                    <div>Pending reason: ${session.pending_reason || '-'}</div>
+                    <div>Report status: ${session.report_available ? 'JSON ready' : (session.completed_interview ? 'Ready to generate' : 'Interview still running')}</div>
+                    ${openReportAction}
+                `;
+            }
+
+            timeline.innerHTML = '';
+            if (!logsData.logs.length) {
+                timeline.innerHTML = '<div class="empty">No logs for this session.</div>';
+                return;
+            }
+
+            logsData.logs.slice().reverse().forEach(log => {
+                const entry = document.createElement('div');
+                entry.className = 'entry';
+                entry.innerHTML = `
+                    <div class="meta">${log.role} | ${formatTime(log.timestamp)}</div>
+                    <div>${escapeHtml(log.message)}</div>
+                `;
+                timeline.appendChild(entry);
+            });
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function selectSession(sessionId) {
+            selectedSessionId = sessionId;
+            refreshAll();
+        }
+
+        async function sendAdminMessage() {
+            const status = document.getElementById('sendStatus');
+            const textarea = document.getElementById('adminMessage');
+            const message = textarea.value.trim();
+            if (!selectedSessionId) {
+                status.innerText = 'Select a session first.';
+                return;
+            }
+            if (!message) {
+                status.innerText = 'Message is empty.';
+                return;
+            }
+
+            const response = await fetch('/api/admin_message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: selectedSessionId, message })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                status.innerText = data.error || 'Failed to send admin message.';
+                return;
+            }
+
+            textarea.value = '';
+            status.innerText = 'Admin message queued for selected session.';
+            refreshAll();
+        }
+
+        async function refreshAll() {
+            await refreshSessions();
+            await refreshLogs();
+        }
+
+        setInterval(refreshAll, 3000);
+        refreshAll();
+    </script>
+</body>
+</html>

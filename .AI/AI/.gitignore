@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime files
+runtime/
+*.log
+*.wav
+*.mp3
+
+# Models and large binaries
+*.onnx
+*.onnx.json
+models/
+
+# Unity-specific
+[Aa]ssets/
+[Ll]ibrary/
+
+# OS defaults
+.DS_Store
+Thumbs.db

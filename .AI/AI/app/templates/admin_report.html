@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Performance</title>
+    <style>
+        :root {
+            --bg: #1c1c1c;
+            --panel: #111111;
+            --panel-soft: #151515;
+            --header: #ae8df5;
+            --score: #8c52ff;
+            --border: #9c7fda;
+            --improvement: #115d39;
+            --improvement-line: #12d67c;
+            --text: #f3f0f8;
+            --muted: #8b829e;
+            --grid: rgba(156, 127, 218, 0.26);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(140, 82, 255, 0.15), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(17, 93, 57, 0.18), transparent 30%),
+                var(--bg);
+            color: var(--text);
+            font-family: "Segoe UI", sans-serif;
+        }
+
+        .page {
+            width: min(1280px, calc(100vw - 48px));
+            margin: 0 auto;
+            padding: 28px 0 40px;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .toolbar-left, .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .pill, button, a.button-link {
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text);
+            padding: 10px 16px;
+            font: inherit;
+            text-decoration: none;
+        }
+
+        button, a.button-link {
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        button:hover, a.button-link:hover {
+            background: rgba(174, 141, 245, 0.14);
+            transform: translateY(-1px);
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, rgba(140, 82, 255, 0.24), rgba(156, 127, 218, 0.2));
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .hero {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            margin: 0 0 12px;
+            color: var(--header);
+            font-size: clamp(34px, 5vw, 58px);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .meta {
+            display: inline-flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .meta-chip {
+            border: 1px solid rgba(156, 127, 218, 0.42);
+            border-radius: 999px;
+            padding: 8px 14px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.03);
+            font-size: 13px;
+        }
+
+        .report-layout {
+            display: grid;
+            grid-template-columns: minmax(360px, 520px) minmax(360px, 1fr);
+            gap: 28px;
+            align-items: start;
+        }
+
+        .chart-card {
+            border: 2px solid var(--border);
+            border-radius: 0;
+            padding: 18px 18px 8px;
+            min-height: 520px;
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .chart-shell {
+            display: grid;
+            place-items: center;
+            min-height: 420px;
+        }
+
+        .chart-shell svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .report-side {
+            display: grid;
+            gap: 16px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: center;
+            align-items: baseline;
+            gap: 28px;
+            padding-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .score-label {
+            color: var(--score);
+            font-size: clamp(22px, 2vw, 28px);
+            font-weight: 700;
+        }
+
+        .score-value {
+            color: var(--score);
+            font-size: clamp(56px, 6vw, 76px);
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 2px solid var(--border);
+            border-radius: 18px;
+            padding: 22px 26px;
+        }
+
+        .panel.summary {
+            display: grid;
+            place-items: center;
+            min-height: 128px;
+            text-align: center;
+            font-size: clamp(18px, 2vw, 23px);
+            line-height: 1.5;
+        }
+
+        .panel h2 {
+            margin: 0 0 12px;
+            color: var(--header);
+            font-size: 32px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .panel h3 {
+            margin: 0 0 14px;
+            color: var(--header);
+            font-size: 18px;
+        }
+
+        .panel p {
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .tips-list, .bullet-list {
+            margin: 0;
+            padding-left: 24px;
+            display: grid;
+            gap: 12px;
+            line-height: 1.45;
+            font-size: 16px;
+        }
+
+        .details-grid {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .detail-card {
+            background: var(--panel-soft);
+            border: 1px solid rgba(156, 127, 218, 0.3);
+            border-radius: 18px;
+            padding: 20px 22px;
+        }
+
+        .detail-card h3 {
+            margin: 0 0 14px;
+            color: var(--header);
+            font-size: 18px;
+        }
+
+        .category-grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .category-item {
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid rgba(156, 127, 218, 0.24);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .category-item-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .category-item-score {
+            color: var(--score);
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .empty-state {
+            margin-top: 46px;
+            border: 1px dashed rgba(156, 127, 218, 0.45);
+            border-radius: 24px;
+            padding: 36px 28px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .empty-state h2 {
+            margin-top: 0;
+            color: var(--header);
+        }
+
+        @media (max-width: 1080px) {
+            .report-layout,
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-card {
+                min-height: auto;
+            }
+
+            .page {
+                width: min(100vw - 28px, 1280px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <a class="button-link" href="/admin">Back to admin</a>
+                <div class="pill" id="sessionPill">Session: {{ session_id }}</div>
+            </div>
+            <div class="toolbar-right">
+                <a class="button-link" id="downloadJsonLink" href="#" target="_blank" rel="noopener" style="display:none;">Open JSON file</a>
+                <button class="primary" id="generateButton" type="button" onclick="generateReport()">Generate AI JSON</button>
+            </div>
+        </div>
+
+        <div class="hero">
+            <h1>Your Interview Performance</h1>
+            <div class="meta" id="metaRow"></div>
+            <div class="status" id="statusLine">Loading session report...</div>
+        </div>
+
+        <div id="contentRoot" style="display:none;">
+            <div class="report-layout">
+                <section class="chart-card">
+                    <div class="chart-shell">
+                        <svg id="radarChart" viewBox="0 0 420 420" aria-label="Interview category radar chart"></svg>
+                    </div>
+                </section>
+
+                <section class="report-side">
+                    <div class="score-row">
+                        <div class="score-label">Overall Score</div>
+                        <div class="score-value" id="overallScoreValue">0 / 100</div>
+                    </div>
+
+                    <div class="panel summary">
+                        <p id="headlineText"></p>
+                    </div>
+
+                    <div class="panel">
+                        <h3>Actionable Tips</h3>
+                        <ul class="tips-list" id="tipsList"></ul>
+                    </div>
+                </section>
+            </div>
+
+            <section class="details-grid">
+                <div class="detail-card">
+                    <h3>AI Summary</h3>
+                    <p id="summaryText" class="muted"></p>
+                </div>
+
+                <div class="detail-card">
+                    <h3>Strengths</h3>
+                    <ul class="bullet-list" id="strengthList"></ul>
+                </div>
+
+                <div class="detail-card">
+                    <h3>Growth Areas</h3>
+                    <ul class="bullet-list" id="growthList"></ul>
+                </div>
+            </section>
+
+            <section class="detail-card" style="margin-top: 18px;">
+                <h3>Category Notes</h3>
+                <div class="category-grid" id="categoryGrid"></div>
+            </section>
+        </div>
+
+        <div class="empty-state" id="emptyState" style="display:none;">
+            <h2>Report Not Ready</h2>
+            <p class="muted" id="emptyMessage"></p>
+        </div>
+    </div>
+
+    <script>
+        const sessionId = {{ session_id | tojson }};
+        const metaRow = document.getElementById('metaRow');
+        const statusLine = document.getElementById('statusLine');
+        const generateButton = document.getElementById('generateButton');
+        const contentRoot = document.getElementById('contentRoot');
+        const emptyState = document.getElementById('emptyState');
+        const emptyMessage = document.getElementById('emptyMessage');
+        const downloadJsonLink = document.getElementById('downloadJsonLink');
+
+        let sessionMeta = null;
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function reportApiPath() {
+            return `/api/admin/sessions/${encodeURIComponent(sessionId)}/report`;
+        }
+
+        function reportFilePath() {
+            return `/api/admin/sessions/${encodeURIComponent(sessionId)}/report/file`;
+        }
+
+        function updateMetaRow(meta) {
+            if (!meta) {
+                metaRow.innerHTML = '';
+                return;
+            }
+
+            const chips = [
+                `Session ${escapeHtml(meta.session_id || sessionId)}`,
+                escapeHtml(meta.job_title || 'Unknown role'),
+                escapeHtml(meta.interview_type || 'Interview'),
+                escapeHtml(meta.language || 'Vietnamese'),
+            ];
+
+            if (meta.transcript_turns) {
+                chips.push(`${meta.transcript_turns} transcript turns`);
+            }
+
+            metaRow.innerHTML = chips.map(value => `<span class="meta-chip">${value}</span>`).join('');
+        }
+
+        function setDownloadVisibility(show) {
+            downloadJsonLink.style.display = show ? 'inline-flex' : 'none';
+            downloadJsonLink.href = reportFilePath();
+        }
+
+        function renderList(elementId, items) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = (items || [])
+                .map(item => `<li>${escapeHtml(item)}</li>`)
+                .join('');
+        }
+
+        function polarPoint(centerX, centerY, radius, angleRadians) {
+            return {
+                x: centerX + Math.cos(angleRadians) * radius,
+                y: centerY + Math.sin(angleRadians) * radius,
+            };
+        }
+
+        function buildPolygonPoints(values, maxValue, centerX, centerY, radius) {
+            return values.map((value, index) => {
+                const angle = (-Math.PI / 2) + (Math.PI * 2 * index / values.length);
+                const point = polarPoint(centerX, centerY, (value / maxValue) * radius, angle);
+                return `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+            }).join(' ');
+        }
+
+        function renderRadar(categories) {
+            const svg = document.getElementById('radarChart');
+            const centerX = 210;
+            const centerY = 218;
+            const radius = 150;
+            const maxValue = 10;
+            const levels = [2, 4, 6, 8, 10];
+            const labels = categories.map(item => item.label);
+
+            const axisLines = labels.map((label, index) => {
+                const angle = (-Math.PI / 2) + (Math.PI * 2 * index / labels.length);
+                const outerPoint = polarPoint(centerX, centerY, radius, angle);
+                const labelPoint = polarPoint(centerX, centerY, radius + 28, angle);
+                const anchor = labelPoint.x < centerX - 12 ? 'end' : (labelPoint.x > centerX + 12 ? 'start' : 'middle');
+                return `
+                    <line x1="${centerX}" y1="${centerY}" x2="${outerPoint.x}" y2="${outerPoint.y}" stroke="var(--grid)" stroke-width="1" />
+                    <text x="${labelPoint.x}" y="${labelPoint.y}" fill="var(--text)" font-size="14" text-anchor="${anchor}" dominant-baseline="middle">${escapeHtml(label)}</text>
+                `;
+            }).join('');
+
+            const gridPolygons = levels.map(level => `
+                <polygon
+                    points="${buildPolygonPoints(new Array(labels.length).fill(level), maxValue, centerX, centerY, radius)}"
+                    fill="none"
+                    stroke="var(--grid)"
+                    stroke-width="1"
+                    stroke-dasharray="3 4"
+                />
+            `).join('');
+
+            const levelLabels = levels.map(level => {
+                const y = centerY - (radius * level / maxValue);
+                return `<text x="${centerX - 24}" y="${y + 4}" fill="var(--text)" font-size="14">${level}</text>`;
+            }).join('');
+
+            const scorePoints = buildPolygonPoints(categories.map(item => item.score), maxValue, centerX, centerY, radius);
+            svg.innerHTML = `
+                ${gridPolygons}
+                ${axisLines}
+                <text x="${centerX - 8}" y="${centerY + 4}" fill="var(--text)" font-size="14">0</text>
+                ${levelLabels}
+                <polygon points="${scorePoints}" fill="rgba(17, 93, 57, 0.72)" stroke="var(--improvement-line)" stroke-width="2.5"></polygon>
+            `;
+        }
+
+        function renderCategoryNotes(categories) {
+            const grid = document.getElementById('categoryGrid');
+            grid.innerHTML = categories.map(category => `
+                <div class="category-item">
+                    <div class="category-item-header">
+                        <span>${escapeHtml(category.label)}</span>
+                        <span class="category-item-score">${category.score}/10 vs ${category.baseline}/10</span>
+                    </div>
+                    <div class="muted">${escapeHtml(category.comment)}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderReport(report) {
+            sessionMeta = report;
+            updateMetaRow(report);
+            document.getElementById('overallScoreValue').innerText = `${report.overall_score} / 100`;
+            document.getElementById('headlineText').innerText = report.headline;
+            document.getElementById('summaryText').innerText = report.overall_summary;
+            renderList('tipsList', report.actionable_tips);
+            renderList('strengthList', report.strengths);
+            renderList('growthList', report.growth_areas);
+            renderRadar(report.categories || []);
+            renderCategoryNotes(report.categories || []);
+            statusLine.innerText = 'AI JSON loaded successfully.';
+            contentRoot.style.display = 'block';
+            emptyState.style.display = 'none';
+            setDownloadVisibility(true);
+            generateButton.disabled = false;
+            generateButton.innerText = 'Regenerate AI JSON';
+        }
+
+        function showEmpty(detail, options = {}) {
+            sessionMeta = detail?.metadata || null;
+            updateMetaRow(sessionMeta);
+            emptyState.style.display = 'block';
+            contentRoot.style.display = 'none';
+            emptyMessage.innerText = detail?.error || 'No report JSON has been created yet.';
+            const ready = typeof options.readyForReport === 'boolean'
+                ? options.readyForReport
+                : Boolean(detail?.ready_for_report);
+            generateButton.disabled = !ready;
+            statusLine.innerText = ready
+                ? 'The interview is complete. Generate the AI JSON to populate this page.'
+                : 'Wait for the interview to finish before generating the report.';
+            generateButton.innerText = 'Generate AI JSON';
+            setDownloadVisibility(false);
+        }
+
+        async function loadReport() {
+            statusLine.innerText = 'Loading session report...';
+            try {
+                const response = await fetch(reportApiPath());
+                const payload = await response.json();
+                if (!response.ok) {
+                    showEmpty(payload.detail || payload);
+                    return;
+                }
+
+                renderReport(payload);
+            } catch (error) {
+                showEmpty({ error: `Failed to load report: ${error.message}` });
+            }
+        }
+
+        async function generateReport() {
+            generateButton.disabled = true;
+            statusLine.innerText = 'Requesting AI report JSON...';
+            try {
+                const response = await fetch(`${reportApiPath()}/generate`, { method: 'POST' });
+                const payload = await response.json();
+                if (!response.ok) {
+                    const detail = payload.detail || payload.error || 'Report generation failed.';
+                    const readyForRetry = response.status !== 409;
+                    showEmpty(
+                        typeof detail === 'string' ? { error: detail } : detail,
+                        { readyForReport: readyForRetry }
+                    );
+                    return;
+                }
+
+                renderReport(payload);
+            } catch (error) {
+                showEmpty(
+                    { error: `Failed to generate report: ${error.message}` },
+                    { readyForReport: true }
+                );
+            }
+        }
+
+        loadReport();
+    </script>
+</body>
+</html>
