@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -81,6 +82,12 @@ public class AIAudioClient : MonoBehaviour
     [Tooltip("Text hiển thị nhận xét cuối buổi.")]
     public TMP_Text finalEvaluationReviewText;
 
+    [Header("=== PERFORMANCE LOGGING ===")]
+    [Tooltip("Bật để ghi thời gian phản hồi STT/AI/TTS ra file CSV.")]
+    public bool enablePerformanceCsvLogging = true;
+    [Tooltip("Tên file CSV trong Application.persistentDataPath.")]
+    public string performanceCsvFileName = "ai_latency_metrics.csv";
+
     // --- Private state ---
     private AudioClip _recordingClip;
     private Coroutine _startRecordingCoroutine;
@@ -105,6 +112,7 @@ public class AIAudioClient : MonoBehaviour
     private const int RecordingSampleRate = 16000;
     private const int MinimumRecordingFrames = 100;
     private const int ManualRecordingBufferSeconds = 300;
+    private int _interactionSequence = 0;
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
@@ -747,6 +755,8 @@ public class AIAudioClient : MonoBehaviour
         _isBusy = true;
         RefreshRecordButtons();
         SetStatus("Đang nhận diện giọng nói...");
+        string interactionId = CreateInteractionId();
+        float audioSeconds = clip != null ? clip.length : 0f;
 
         byte[] wavBytes = null;
         try
@@ -779,8 +789,10 @@ public class AIAudioClient : MonoBehaviour
 
         using (UnityWebRequest req = UnityWebRequest.Post(endpoint, form))
         {
+            double sttStartedAt = Time.realtimeSinceStartupAsDouble;
             req.timeout = SttTimeoutSeconds;
             yield return req.SendWebRequest();
+            double sttDurationMs = GetElapsedMilliseconds(sttStartedAt);
 
             if (req.result != UnityWebRequest.Result.Success)
             {
@@ -801,6 +813,7 @@ public class AIAudioClient : MonoBehaviour
                 if (errorResp != null && errorResp.need_admin)
                 {
                     string adminError = string.IsNullOrWhiteSpace(errorResp.error) ? req.error : errorResp.error;
+                    LogPerformanceMetric("stt", false, sttDurationMs, interactionId, wavBytes.Length, 0, audioSeconds, 0, 0, req.responseCode, adminError);
                     if (IsSpeechRecognitionFailure(adminError, req.responseCode))
                     {
                         SetStatus("Không nhận diện được giọng nói. Hãy thử lại.");
@@ -819,6 +832,7 @@ public class AIAudioClient : MonoBehaviour
                 string errorDetail = errorResp != null && !string.IsNullOrWhiteSpace(errorResp.error)
                     ? errorResp.error.Trim()
                     : req.error;
+                LogPerformanceMetric("stt", false, sttDurationMs, interactionId, wavBytes.Length, 0, audioSeconds, 0, 0, req.responseCode, errorDetail);
 
                 if (IsSpeechRecognitionFailure(errorDetail, req.responseCode))
                 {
@@ -840,6 +854,7 @@ public class AIAudioClient : MonoBehaviour
             Debug.Log("[AI] STT Raw JSON: " + json);
             SttResponse sttResp = JsonUtility.FromJson<SttResponse>(json);
             string recognizedText = sttResp?.text?.Trim();
+            LogPerformanceMetric("stt", !string.IsNullOrEmpty(recognizedText), sttDurationMs, interactionId, wavBytes.Length, recognizedText != null ? recognizedText.Length : 0, audioSeconds, 0, 0, req.responseCode, string.IsNullOrEmpty(recognizedText) ? "empty transcript" : null);
 
             if (string.IsNullOrEmpty(recognizedText))
             {
@@ -853,7 +868,7 @@ public class AIAudioClient : MonoBehaviour
             Debug.Log("[AI] Recognized: " + recognizedText);
 
             // Tiếp tục gửi transcript lên AI rồi tách riêng bước TTS
-            yield return ChatVoiceCoroutine(recognizedText);
+            yield return ChatVoiceCoroutine(recognizedText, interactionId, sttStartedAt);
         }
     }
 
@@ -905,11 +920,15 @@ public class AIAudioClient : MonoBehaviour
     }
 
     /// <summary>Bước 2: Gửi text lên /api/chat → nhận full text → Bước 3: TTS theo từng đoạn</summary>
-    private IEnumerator ChatVoiceCoroutine(string message)
+    private IEnumerator ChatVoiceCoroutine(string message, string interactionId = null, double voicePipelineStartedAt = -1d)
     {
         _isBusy = true;
         RefreshRecordButtons();
         SetStatus("AI đang xử lý...");
+        if (string.IsNullOrWhiteSpace(interactionId))
+        {
+            interactionId = CreateInteractionId();
+        }
 
         string endpoint = BuildEndpoint("/api/chat");
         string jsonBody = JsonUtility.ToJson(new ChatPayload 
@@ -930,13 +949,16 @@ public class AIAudioClient : MonoBehaviour
             req.SetRequestHeader("Content-Type", "application/json");
             req.timeout = ChatTimeoutSeconds;
 
+            double chatStartedAt = Time.realtimeSinceStartupAsDouble;
             yield return req.SendWebRequest();
+            double chatDurationMs = GetElapsedMilliseconds(chatStartedAt);
 
             string responseText = req.downloadHandler != null ? req.downloadHandler.text : "";
             if (req.result != UnityWebRequest.Result.Success)
             {
                 string serverError = ExtractErrorMessage(responseText);
                 string errorDetail = string.IsNullOrWhiteSpace(serverError) ? req.error : serverError;
+                LogPerformanceMetric("chat", false, chatDurationMs, interactionId, message != null ? message.Length : 0, 0, 0f, 0, 0, req.responseCode, errorDetail);
                 ChatResponse errorResp = null;
                 if (!string.IsNullOrWhiteSpace(responseText))
                 {
@@ -974,6 +996,7 @@ public class AIAudioClient : MonoBehaviour
 
             string aiText = chatResp != null ? chatResp.response : null;
             aiText = string.IsNullOrWhiteSpace(aiText) ? null : aiText.Trim();
+            LogPerformanceMetric("chat", !string.IsNullOrWhiteSpace(aiText), chatDurationMs, interactionId, message != null ? message.Length : 0, aiText != null ? aiText.Length : 0, 0f, 0, 0, req.responseCode, string.IsNullOrWhiteSpace(aiText) ? "empty response" : null);
 
             if (string.IsNullOrWhiteSpace(aiText))
             {
@@ -998,7 +1021,12 @@ public class AIAudioClient : MonoBehaviour
             {
                 ShowFinalEvaluationCanvas(finalScore, finalReview);
             }
-            yield return SpeakTextChunksCoroutine(aiText);
+            yield return SpeakTextChunksCoroutine(aiText, interactionId);
+
+            if (voicePipelineStartedAt >= 0d)
+            {
+                LogPerformanceMetric("voice_roundtrip_total", true, GetElapsedMilliseconds(voicePipelineStartedAt), interactionId, message != null ? message.Length : 0, aiText.Length);
+            }
         }
 
         _isBusy = false;
@@ -1065,20 +1093,28 @@ public class AIAudioClient : MonoBehaviour
         _isBusy = true;
         RefreshRecordButtons();
         SetAiTranscriptText(text);
-        yield return SpeakTextChunksCoroutine(text);
+        yield return SpeakTextChunksCoroutine(text, CreateInteractionId());
 
         _isBusy = false;
         RefreshRecordButtons();
     }
 
-    private IEnumerator SpeakTextChunksCoroutine(string fullText)
+    private IEnumerator SpeakTextChunksCoroutine(string fullText, string interactionId = null)
     {
+        if (string.IsNullOrWhiteSpace(interactionId))
+        {
+            interactionId = CreateInteractionId();
+        }
+
         List<string> chunks = SplitTextForTts(fullText, TtsChunkMaxCharacters);
         if (chunks.Count == 0)
         {
             SetStatus("TTS Error: Empty text.");
             yield break;
         }
+
+        double ttsTotalStartedAt = Time.realtimeSinceStartupAsDouble;
+        bool allChunksSucceeded = true;
 
         for (int i = 0; i < chunks.Count; i++)
         {
@@ -1100,10 +1136,14 @@ public class AIAudioClient : MonoBehaviour
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.timeout = TtsTimeoutSeconds;
 
+                double ttsChunkStartedAt = Time.realtimeSinceStartupAsDouble;
                 yield return req.SendWebRequest();
+                double ttsChunkDurationMs = GetElapsedMilliseconds(ttsChunkStartedAt);
 
                 if (req.result != UnityWebRequest.Result.Success)
                 {
+                    allChunksSucceeded = false;
+                    LogPerformanceMetric("tts_chunk", false, ttsChunkDurationMs, interactionId, chunk.Length, 0, 0f, i + 1, chunks.Count, req.responseCode, req.error);
                     SetStatus("TTS Error: " + req.error);
                     Debug.LogError("[AI] TTS error: " + req.error);
                     byte[] errorBytes = req.downloadHandler != null ? req.downloadHandler.data : null;
@@ -1117,9 +1157,13 @@ public class AIAudioClient : MonoBehaviour
                 AudioClip aiClip = DownloadHandlerAudioClip.GetContent(req);
                 if (aiClip == null)
                 {
+                    allChunksSucceeded = false;
+                    LogPerformanceMetric("tts_chunk", false, ttsChunkDurationMs, interactionId, chunk.Length, 0, 0f, i + 1, chunks.Count, req.responseCode, "audio clip unreadable");
                     SetStatus("Không đọc được âm thanh giọng nói của AI.");
                     yield break;
                 }
+
+                LogPerformanceMetric("tts_chunk", true, ttsChunkDurationMs, interactionId, chunk.Length, 0, aiClip.length, i + 1, chunks.Count, req.responseCode, null);
 
                 if (audioSource.isPlaying) audioSource.Stop();
                 if (audioSource.clip != null)
@@ -1136,6 +1180,8 @@ public class AIAudioClient : MonoBehaviour
                 yield return WaitForAudioPlaybackOrTimeout(aiClip, i + 1, chunks.Count);
             }
         }
+
+        LogPerformanceMetric("tts_total", allChunksSucceeded, GetElapsedMilliseconds(ttsTotalStartedAt), interactionId, fullText != null ? fullText.Length : 0, 0, 0f, 0, chunks.Count, 0, allChunksSucceeded ? null : "one or more chunks failed");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1736,6 +1782,52 @@ public class AIAudioClient : MonoBehaviour
     private string BuildEndpoint(string path)
     {
         return NormalizeServerUrl(serverUrl) + path;
+    }
+
+    private string CreateInteractionId()
+    {
+        EnsureSessionId();
+        _interactionSequence++;
+        return sessionId + "-req-" + _interactionSequence.ToString("D4", CultureInfo.InvariantCulture);
+    }
+
+    private double GetElapsedMilliseconds(double startedAt)
+    {
+        return (Time.realtimeSinceStartupAsDouble - startedAt) * 1000d;
+    }
+
+    private void LogPerformanceMetric(
+        string stage,
+        bool success,
+        double durationMs,
+        string interactionId,
+        int requestChars = 0,
+        int responseChars = 0,
+        float audioSeconds = 0f,
+        int chunkIndex = 0,
+        int chunkCount = 0,
+        long httpStatus = 0,
+        string error = null)
+    {
+        if (!enablePerformanceCsvLogging) return;
+
+        AIPerformanceCsvLogger.LogMetric(
+            stage: stage,
+            success: success,
+            durationMs: durationMs,
+            sessionId: sessionId,
+            interactionId: interactionId,
+            language: language,
+            jobTitle: jobTitle,
+            interviewType: interviewType,
+            requestChars: requestChars,
+            responseChars: responseChars,
+            audioSeconds: audioSeconds,
+            chunkIndex: chunkIndex,
+            chunkCount: chunkCount,
+            httpStatus: httpStatus,
+            error: error,
+            fileName: performanceCsvFileName);
     }
 
     private void ResetConversationMemory(bool renewSessionId)
