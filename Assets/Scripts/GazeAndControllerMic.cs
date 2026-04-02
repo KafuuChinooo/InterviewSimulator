@@ -4,10 +4,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Kich hoat ghi am khi nguoi dung nhin vao bat ky mic nao trong `micTargets`
-/// trong `gazeTriggerTime` giay hoac nhan nut X tren tay cam.
+/// Quan ly mic trong VR bang nut tay cam va visual feedback cho mic dang active.
 /// Nut O tren tay cam se click UI dang nam o tam man hinh.
-/// Script tu dong chon mic dang active trong scene va hien thi visual feedback.
+/// Script tu dong chon mic dang active trong scene va khong tu ghi am bang gaze.
 /// </summary>
 public class GazeAndControllerMic : MonoBehaviour
 {
@@ -17,17 +16,8 @@ public class GazeAndControllerMic : MonoBehaviour
     [Tooltip("Keo tat ca cac nut Mic vao day (Mic tieng Anh, Mic tieng Viet, v.v.).")]
     public GameObject[] micTargets;
 
-    [HideInInspector]
-    public GameObject micTarget;
-
     [Tooltip("Camera dung de raycast (de gaze). Mac dinh la Camera.main neu de trong")]
     public Camera vrCamera;
-
-    [Tooltip("Thoi gian (giay) nhin lien tuc vao mic de kich hoat")]
-    public float gazeTriggerTime = 2f;
-
-    [Tooltip("Thoi gian (giay) ghi am toi da sau khi kich hoat")]
-    public float recordDuration = 60f;
 
     [Tooltip("KeyCode nut controller de bat/tat mic - mac dinh JoystickButton0 (PS X)")]
     public KeyCode controllerButton = KeyCode.JoystickButton0;
@@ -41,19 +31,7 @@ public class GazeAndControllerMic : MonoBehaviour
     [Tooltip("Layer mask cho Physics.Raycast (neu mic la doi tuong 3D co Collider)")]
     public LayerMask physicsLayerMask = Physics.DefaultRaycastLayers;
 
-    [Tooltip("Neu co UI panel mo nen vo hieu hoa gaze, keo cac panel do vao day")]
-    public GameObject[] uiBlockers;
-
-    [Tooltip("Chi nhan gaze khi target la top-most UI (on voi world-space UI)")]
-    public bool requireTopmostUI = true;
-
-    private float gazeTimer = 0f;
-    private bool gazeTriggered = false;
-
     private GameObject _activeMic;
-    private Collider targetCollider;
-    private RectTransform targetRect;
-    private GraphicRaycaster graphicRaycaster;
     private EventSystem eventSystem;
 
     private readonly Dictionary<GameObject, Color> _originalColors = new Dictionary<GameObject, Color>();
@@ -89,11 +67,6 @@ public class GazeAndControllerMic : MonoBehaviour
                 }
             }
 
-            if (micTarget != null && !found.Contains(micTarget))
-            {
-                found.Add(micTarget);
-            }
-
             micTargets = found.ToArray();
             Debug.Log("[Gaze] Auto-found " + micTargets.Length + " mic target(s).");
         }
@@ -114,7 +87,7 @@ public class GazeAndControllerMic : MonoBehaviour
         }
 
         eventSystem = EventSystem.current;
-        Debug.Log($"[Gaze] Config: gazeTriggerTime={gazeTriggerTime}s, recordDuration={recordDuration}s, micButton={controllerButton}, clickButton={controllerClickButton}");
+        Debug.Log($"[Gaze] Config: micButton={controllerButton}, clickButton={controllerClickButton}");
     }
 
     GameObject GetActiveMic()
@@ -136,22 +109,7 @@ public class GazeAndControllerMic : MonoBehaviour
         _activeMic = mic;
         if (mic == null)
         {
-            targetCollider = null;
-            targetRect = null;
-            graphicRaycaster = null;
             return;
-        }
-
-        targetCollider = mic.GetComponent<Collider>() ?? mic.GetComponentInChildren<Collider>();
-        targetRect = mic.GetComponent<RectTransform>();
-        if (targetRect != null)
-        {
-            Canvas canvas = mic.GetComponentInParent<Canvas>();
-            if (canvas != null)
-            {
-                graphicRaycaster = canvas.GetComponent<GraphicRaycaster>();
-                if (graphicRaycaster == null) graphicRaycaster = canvas.gameObject.AddComponent<GraphicRaycaster>();
-            }
         }
 
         Debug.Log("[Gaze] Active mic switched to: " + mic.name);
@@ -187,21 +145,6 @@ public class GazeAndControllerMic : MonoBehaviour
 
         UpdateVisualFeedback(currentMic);
 
-        bool looking = IsLookingAtTarget();
-        if (looking)
-        {
-            gazeTimer += Time.deltaTime;
-            if (!gazeTriggered && gazeTimer >= gazeTriggerTime)
-            {
-                gazeTriggered = true;
-                StartTimedRecordingIfPossible();
-            }
-        }
-        else
-        {
-            gazeTimer = 0f;
-            gazeTriggered = false;
-        }
     }
 
     void UpdateVisualFeedback(GameObject currentMic)
@@ -261,80 +204,12 @@ public class GazeAndControllerMic : MonoBehaviour
         }
     }
 
-    bool IsLookingAtTarget()
-    {
-        if (vrCamera == null || _activeMic == null) return false;
-
-        Ray ray = new Ray(vrCamera.transform.position, vrCamera.transform.forward);
-        RaycastHit hit;
-
-        if (targetCollider != null)
-        {
-            if (Physics.Raycast(ray, out hit, 100f, physicsLayerMask))
-            {
-                if (hit.collider.transform.IsChildOf(_activeMic.transform) || hit.collider.transform == _activeMic.transform) return true;
-            }
-            return false;
-        }
-
-        if (targetRect != null && graphicRaycaster != null && eventSystem != null)
-        {
-            PointerEventData ped = new PointerEventData(eventSystem);
-            Vector2 screenCenter = new Vector2(Screen.width / 2f, Screen.height / 2f);
-            if (vrCamera != null)
-            {
-                screenCenter = vrCamera.ViewportToScreenPoint(new Vector3(0.5f, 0.5f, 0f));
-            }
-            ped.position = screenCenter;
-
-            List<RaycastResult> results = new List<RaycastResult>();
-            graphicRaycaster.Raycast(ped, results);
-
-            if (uiBlockers != null)
-            {
-                foreach (var blocker in uiBlockers)
-                {
-                    if (blocker != null && blocker.activeInHierarchy) return false;
-                }
-            }
-
-            if (results.Count == 0) return false;
-
-            if (requireTopmostUI)
-            {
-                var top = results[0];
-                if (top.gameObject == _activeMic || top.gameObject.transform.IsChildOf(_activeMic.transform)) return true;
-                return false;
-            }
-
-            foreach (var result in results)
-            {
-                if (result.gameObject == _activeMic || result.gameObject.transform.IsChildOf(_activeMic.transform)) return true;
-            }
-        }
-
-        return false;
-    }
-
     void HandleControllerMicToggle()
     {
         Debug.Log("[Gaze] Controller mic button pressed.");
 
-        if (!aiAudioClient.IsRecording && !aiAudioClient.IsBusy)
-        {
-            StartTimedRecordingIfPossible();
-        }
-        else if (aiAudioClient.IsRecording)
-        {
-            aiAudioClient.OnStopAndSendClicked();
-        }
-    }
-
-    void StartTimedRecordingIfPossible()
-    {
-        if (aiAudioClient == null || aiAudioClient.IsRecording || aiAudioClient.IsBusy) return;
-
-        aiAudioClient.StartRecordForSeconds(Mathf.CeilToInt(recordDuration));
+        if (aiAudioClient == null || aiAudioClient.IsBusy) return;
+        aiAudioClient.ToggleRecord();
     }
 
     bool TryClickCenterTarget()

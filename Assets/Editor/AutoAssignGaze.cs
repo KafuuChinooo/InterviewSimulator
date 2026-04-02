@@ -1,6 +1,5 @@
 using UnityEditor;
 using UnityEngine;
-using System.Collections.Generic;
 
 #if UNITY_EDITOR
 public static class AutoAssignGaze
@@ -27,7 +26,7 @@ public static class AutoAssignGaze
         var comp = parent.AddComponent<GazeAndControllerMic>();
         comp.aiAudioClient = ai;
 
-        // Try to assign micTarget by name contains 'mic'
+        // Try to assign a visible mic object by name contains 'mic'
         GameObject mic = GameObject.Find("Mic");
         if (mic == null)
         {
@@ -40,16 +39,7 @@ public static class AutoAssignGaze
                 }
             }
         }
-        if (mic != null) comp.micTarget = mic;
-
-        // Collect likely UI blocker panels (names containing 'trang_4' or 'position')
-        var blockers = new List<GameObject>();
-        foreach (var go in Object.FindObjectsOfType<GameObject>())
-        {
-            var n = go.name.ToLower();
-            if (n.Contains("trang_4") || n.Contains("position") || n.Contains("trang4")) blockers.Add(go);
-        }
-        if (blockers.Count > 0) comp.uiBlockers = blockers.ToArray();
+        if (mic != null) comp.micTargets = new[] { mic };
 
         EditorUtility.SetDirty(comp);
         Selection.activeGameObject = parent;

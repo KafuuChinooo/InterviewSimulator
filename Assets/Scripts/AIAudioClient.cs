@@ -41,8 +41,6 @@ public class AIAudioClient : MonoBehaviour
     public Button startRecordButton;
     [Tooltip("Button 'Dừng và Gửi'")]
     public Button stopSendButton;
-    [Tooltip("Số giây ghi âm tối đa")]
-    public int maxRecordSeconds = 60;
 
     [Header("=== DEFAULT SCRIPT MODE UI ===")]
     [Tooltip("Button để đọc đoạn text mặc định")]
@@ -75,14 +73,21 @@ public class AIAudioClient : MonoBehaviour
     [TextArea(3, 5)]
     public string vietnameseGreeting = "Chào bạn, chào mừng đến với VirtuHire! Tôi tên là Phương Hằng. Tôi sẽ là người phỏng vấn bạn trong buổi hôm nay. Đây là một không gian an toàn để bạn luyện tập và làm quen với các cuộc phỏng vấn. Hãy cứ thư giãn và thể hiện hết mình nhé. Chúng ta bắt đầu nào!";
 
+    [Header("=== FINAL EVALUATION UI ===")]
+    [Tooltip("Canvas/panel sẽ bật lên khi bài phỏng vấn kết thúc.")]
+    public GameObject finalEvaluationCanvas;
+    [Tooltip("Text hiển thị điểm tổng, ví dụ 8.5/10.")]
+    public TMP_Text finalEvaluationScoreText;
+    [Tooltip("Text hiển thị nhận xét cuối buổi.")]
+    public TMP_Text finalEvaluationReviewText;
+
     // --- Private state ---
     private AudioClip _recordingClip;
-    private Coroutine _autoStopRecordingCoroutine;
     private Coroutine _startRecordingCoroutine;
     private bool _isRecording = false;
     private bool _isBusy = false;
     private bool _isStartingRecording = false;
-    private int _pendingAutoStopSeconds = 0;
+    private float _recordingStartedAtRealtime = -1f;
     private string _activeMicrophoneDevice = "";
     private StatusKey _currentStatusKey = StatusKey.Ready;
     private string _currentStatusDetail = "";
@@ -97,6 +102,9 @@ public class AIAudioClient : MonoBehaviour
     private const float AudioPlaybackGraceSeconds = 2f;
     private const int MaxConversationHistoryMessages = 12;
     private const float MicrophoneStartTimeoutSeconds = 2f;
+    private const int RecordingSampleRate = 16000;
+    private const int MinimumRecordingFrames = 100;
+    private const int ManualRecordingBufferSeconds = 300;
     // Public read-only accessors for other scripts (e.g., gaze/controller helper)
     public bool IsRecording { get { return _isRecording; } }
     public bool IsBusy { get { return _isBusy; } }
@@ -235,7 +243,7 @@ public class AIAudioClient : MonoBehaviour
         return _activeMicrophoneDevice;
     }
 
-    private void StartRecordingInternal(int autoStopSeconds)
+    private void StartRecordingInternal()
     {
         if (_isBusy || _isRecording || _isStartingRecording) return;
 
@@ -253,8 +261,6 @@ public class AIAudioClient : MonoBehaviour
             return;
         }
 
-        CancelAutoStopRecording();
-        _pendingAutoStopSeconds = Mathf.Max(0, autoStopSeconds);
         if (_recordingClip != null)
         {
             Destroy(_recordingClip);
@@ -266,6 +272,7 @@ public class AIAudioClient : MonoBehaviour
             StopCoroutine(_startRecordingCoroutine);
         }
 
+        _recordingStartedAtRealtime = -1f;
         _startRecordingCoroutine = StartCoroutine(BeginRecordingCoroutine(microphoneDevice));
     }
 
@@ -275,12 +282,12 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("Đang khởi tạo micro...");
 
-        _recordingClip = Microphone.Start(microphoneDevice, false, maxRecordSeconds, 16000);
+        _recordingClip = Microphone.Start(microphoneDevice, true, ManualRecordingBufferSeconds, RecordingSampleRate);
         if (_recordingClip == null)
         {
             _startRecordingCoroutine = null;
             _isStartingRecording = false;
-            _pendingAutoStopSeconds = 0;
+            _recordingStartedAtRealtime = -1f;
             SetStatus("Không thể khởi động micro.");
             RefreshRecordButtons();
             yield break;
@@ -295,14 +302,9 @@ public class AIAudioClient : MonoBehaviour
                 _startRecordingCoroutine = null;
                 _isStartingRecording = false;
                 _isRecording = true;
+                _recordingStartedAtRealtime = Time.realtimeSinceStartup;
                 SetStatus("Mic đang ghi âm...");
                 RefreshRecordButtons();
-
-                if (_pendingAutoStopSeconds > 0)
-                {
-                    CancelAutoStopRecording();
-                    _autoStopRecordingCoroutine = StartCoroutine(AutoStopRecordingAfterDelayCoroutine(_pendingAutoStopSeconds));
-                }
 
                 yield break;
             }
@@ -313,7 +315,7 @@ public class AIAudioClient : MonoBehaviour
         Microphone.End(microphoneDevice);
         _startRecordingCoroutine = null;
         _isStartingRecording = false;
-        _pendingAutoStopSeconds = 0;
+        _recordingStartedAtRealtime = -1f;
         if (_recordingClip != null)
         {
             Destroy(_recordingClip);
@@ -458,6 +460,7 @@ public class AIAudioClient : MonoBehaviour
         // Trạng thái ban đầu
         RefreshRecordButtons();
         SetStatus("Sẵn sàng phỏng vấn.");
+        HideFinalEvaluationCanvas();
 
         // Kiểm tra và in danh sách microphone để dễ debug
         if (Microphone.devices.Length > 0) {
@@ -466,15 +469,15 @@ public class AIAudioClient : MonoBehaviour
             Debug.LogError("No Microphone detected!");
         }
 
-        // Nếu trong scene chưa có GazeAndControllerMic, tự động thêm để tiện test
+        // Nếu trong scene chưa có helper điều khiển mic, tự động thêm để tiện test
         if (FindObjectOfType<GazeAndControllerMic>() == null)
         {
             try
             {
-                var gaze = gameObject.AddComponent<GazeAndControllerMic>();
-                gaze.aiAudioClient = this;
+                var controllerMic = gameObject.AddComponent<GazeAndControllerMic>();
+                controllerMic.aiAudioClient = this;
 
-                // Cố gắng tự tìm micTarget theo tên
+                // Cố gắng tự tìm nút mic theo tên để gắn visual feedback
                 GameObject micObj = GameObject.Find("Mic");
                 if (micObj == null)
                 {
@@ -483,16 +486,7 @@ public class AIAudioClient : MonoBehaviour
                         if (go.name.ToLower().Contains("mic")) { micObj = go; break; }
                     }
                 }
-                if (micObj != null) gaze.micTarget = micObj;
-
-                // Gán các UI blocker (tìm các object có tên chứa 'trang_4' hoặc 'position')
-                var blockers = new List<GameObject>();
-                foreach (var go in GameObject.FindObjectsOfType<GameObject>())
-                {
-                    var n = go.name.ToLower();
-                    if (n.Contains("trang_4") || n.Contains("position") || n.Contains("trang4")) blockers.Add(go);
-                }
-                if (blockers.Count > 0) gaze.uiBlockers = blockers.ToArray();
+                if (micObj != null) controllerMic.micTargets = new[] { micObj };
 
                 Debug.Log("[AI] Auto-added GazeAndControllerMic to " + gameObject.name + (micObj != null ? " (mic: " + micObj.name + ")" : " (mic not found)"));
             }
@@ -602,7 +596,7 @@ public class AIAudioClient : MonoBehaviour
         
         if (!_isRecording)
         {
-            StartRecordForSeconds(maxRecordSeconds);
+            StartRecordingInternal();
             Debug.Log("[AI] Vừa bật ghi âm bằng nút Mic.");
         }
         else
@@ -614,17 +608,18 @@ public class AIAudioClient : MonoBehaviour
 
     public void OnStartRecordClicked()
     {
-        StartRecordingInternal(0);
+        StartRecordingInternal();
     }
 
     public void OnStopAndSendClicked()
     {
         if (_isStartingRecording || !_isRecording) return;
 
-        CancelAutoStopRecording();
-        _pendingAutoStopSeconds = 0;
-
-        string microphoneDevice = GetPreferredMicrophoneDevice();
+        string microphoneDevice = _activeMicrophoneDevice;
+        if (string.IsNullOrEmpty(microphoneDevice))
+        {
+            microphoneDevice = GetPreferredMicrophoneDevice();
+        }
         if (string.IsNullOrEmpty(microphoneDevice))
         {
             microphoneDevice = null;
@@ -636,62 +631,110 @@ public class AIAudioClient : MonoBehaviour
         RefreshRecordButtons();
         SetStatus("Mic đã dừng.");
 
-        if (_recordingClip == null || recordedSamples < 100)
+        AudioClip trimmed = BuildTrimmedRecordingClip(recordedSamples);
+
+        if (trimmed == null)
         {
             SetStatus("Mic đã dừng. Bản ghi quá ngắn.");
-            // Dọn dẹp clip ghi âm lỗi
             if (_recordingClip != null)
             {
                 Destroy(_recordingClip);
                 _recordingClip = null;
             }
+            _recordingStartedAtRealtime = -1f;
             return;
         }
 
-        // Cắt clip theo số sample thực tế
-        float[] data = new float[recordedSamples * _recordingClip.channels];
-        _recordingClip.GetData(data, 0);
-        AudioClip trimmed = AudioClip.Create("rec", recordedSamples, _recordingClip.channels, _recordingClip.frequency, false);
-        trimmed.SetData(data, 0);
-
-        // Giải phóng đoạn ghi âm thô ban đầu sau khi đã cắt xong
         Destroy(_recordingClip);
         _recordingClip = null;
+        _recordingStartedAtRealtime = -1f;
 
         SetStatus("Mic đã dừng. Đang gửi âm thanh...");
         StartCoroutine(SttThenChatCoroutine(trimmed));
     }
 
-    /// <summary>
-    /// Bắt đầu ghi âm trong một khoảng thời gian cố định (giây) rồi tự động dừng và gửi.
-    /// Dùng cho kích hoạt bằng gaze hoặc controller.
-    /// </summary>
-    public void StartRecordForSeconds(int seconds)
+    private AudioClip BuildTrimmedRecordingClip(int recordedFrames)
     {
-        if (_isBusy || _isRecording || _isStartingRecording) return;
-
-        int clampedSeconds = Mathf.Max(1, seconds);
-        maxRecordSeconds = Mathf.Max(maxRecordSeconds, clampedSeconds);
-        StartRecordingInternal(clampedSeconds);
-    }
-
-    private IEnumerator AutoStopRecordingAfterDelayCoroutine(int seconds)
-    {
-        yield return new WaitForSeconds(seconds);
-
-        _autoStopRecordingCoroutine = null;
-        if (_isRecording)
+        if (_recordingClip == null)
         {
-            OnStopAndSendClicked();
+            return null;
         }
-    }
 
-    private void CancelAutoStopRecording()
-    {
-        if (_autoStopRecordingCoroutine == null) return;
+        int totalBufferFrames = _recordingClip.samples;
+        int channels = _recordingClip.channels;
+        if (totalBufferFrames < MinimumRecordingFrames || channels <= 0)
+        {
+            return null;
+        }
 
-        StopCoroutine(_autoStopRecordingCoroutine);
-        _autoStopRecordingCoroutine = null;
+        int safeRecordedFrames = Mathf.Clamp(recordedFrames, 0, totalBufferFrames);
+        float recordingDurationSeconds = _recordingStartedAtRealtime > 0f
+            ? Mathf.Max(0f, Time.realtimeSinceStartup - _recordingStartedAtRealtime)
+            : 0f;
+        int estimatedRecordedFrames = Mathf.Max(safeRecordedFrames, Mathf.RoundToInt(recordingDurationSeconds * _recordingClip.frequency));
+        bool bufferWrapped = estimatedRecordedFrames >= totalBufferFrames;
+
+        if (!bufferWrapped)
+        {
+            if (safeRecordedFrames < MinimumRecordingFrames)
+            {
+                return null;
+            }
+
+            float[] data = new float[safeRecordedFrames * channels];
+            if (!_recordingClip.GetData(data, 0))
+            {
+                Debug.LogError("[AI] Failed to read recorded clip data.");
+                return null;
+            }
+
+            AudioClip trimmedClip = AudioClip.Create("rec", safeRecordedFrames, channels, _recordingClip.frequency, false);
+            trimmedClip.SetData(data, 0);
+            return trimmedClip;
+        }
+
+        Debug.LogWarning("[AI] Recording exceeded the in-memory buffer. Sending the most recent audio segment.");
+
+        int tailFrames = totalBufferFrames - safeRecordedFrames;
+        int headFrames = safeRecordedFrames;
+        float[] orderedData = new float[totalBufferFrames * channels];
+        int copiedSamples = 0;
+
+        if (tailFrames > 0)
+        {
+            float[] tailData = new float[tailFrames * channels];
+            if (!_recordingClip.GetData(tailData, safeRecordedFrames))
+            {
+                Debug.LogError("[AI] Failed to read wrapped tail audio data.");
+                return null;
+            }
+
+            System.Array.Copy(tailData, 0, orderedData, copiedSamples, tailData.Length);
+            copiedSamples += tailData.Length;
+        }
+
+        if (headFrames > 0)
+        {
+            float[] headData = new float[headFrames * channels];
+            if (!_recordingClip.GetData(headData, 0))
+            {
+                Debug.LogError("[AI] Failed to read wrapped head audio data.");
+                return null;
+            }
+
+            System.Array.Copy(headData, 0, orderedData, copiedSamples, headData.Length);
+            copiedSamples += headData.Length;
+        }
+
+        int recordedFramesToKeep = copiedSamples / channels;
+        if (recordedFramesToKeep < MinimumRecordingFrames)
+        {
+            return null;
+        }
+
+        AudioClip wrappedClip = AudioClip.Create("rec", recordedFramesToKeep, channels, _recordingClip.frequency, false);
+        wrappedClip.SetData(orderedData, 0);
+        return wrappedClip;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -947,8 +990,14 @@ public class AIAudioClient : MonoBehaviour
                 yield break;
             }
 
+            bool hasFinalEvaluation = TryParseFinalEvaluation(aiText, out string finalScore, out string finalReview);
+
             AppendConversationTurn(message, aiText);
             SetAiTranscriptText(aiText);
+            if (hasFinalEvaluation)
+            {
+                ShowFinalEvaluationCanvas(finalScore, finalReview);
+            }
             yield return SpeakTextChunksCoroutine(aiText);
         }
 
@@ -1577,6 +1626,96 @@ public class AIAudioClient : MonoBehaviour
         transcriptLabel.text = "🤖 AI: " + displayText;
     }
 
+    private void ShowFinalEvaluationCanvas(string score, string review)
+    {
+        if (finalEvaluationScoreText != null)
+        {
+            finalEvaluationScoreText.text = string.IsNullOrWhiteSpace(score) ? "-" : score.Trim();
+        }
+
+        if (finalEvaluationReviewText != null)
+        {
+            finalEvaluationReviewText.text = string.IsNullOrWhiteSpace(review) ? GetLocalizedTranscriptFallback() : review.Trim();
+        }
+
+        if (finalEvaluationCanvas != null)
+        {
+            finalEvaluationCanvas.SetActive(true);
+        }
+    }
+
+    private void HideFinalEvaluationCanvas()
+    {
+        if (finalEvaluationCanvas != null)
+        {
+            finalEvaluationCanvas.SetActive(false);
+        }
+    }
+
+    private bool TryParseFinalEvaluation(string aiText, out string score, out string review)
+    {
+        score = "";
+        review = "";
+
+        if (string.IsNullOrWhiteSpace(aiText))
+        {
+            return false;
+        }
+
+        string normalized = aiText.Replace("\r\n", "\n").Trim();
+
+        Match scoreMatch = Regex.Match(
+            normalized,
+            @"(?:Bạn\s+đạt|Ban\s+dat|You\s+scored)\s*:\s*([0-9]+(?:[.,][0-9]+)?\s*/\s*10)",
+            RegexOptions.IgnoreCase
+        );
+        if (!scoreMatch.Success)
+        {
+            return false;
+        }
+
+        Match strengthsMatch = Regex.Match(
+            normalized,
+            @"(?:Điểm\s+mạnh|Diem\s+manh|Strengths)\s*:\s*(.+?)(?=\n(?:Cần\s+cải\s+thiện|Can\s+cai\s+thien|Needs\s+improvement)\s*:|$)",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline
+        );
+        Match improvementMatch = Regex.Match(
+            normalized,
+            @"(?:Cần\s+cải\s+thiện|Can\s+cai\s+thien|Needs\s+improvement)\s*:\s*(.+)$",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline
+        );
+
+        score = scoreMatch.Groups[1].Value.Trim();
+
+        string strengths = strengthsMatch.Success ? Regex.Replace(strengthsMatch.Groups[1].Value, @"\s+", " ").Trim() : "";
+        string improvement = improvementMatch.Success ? Regex.Replace(improvementMatch.Groups[1].Value, @"\s+", " ").Trim() : "";
+
+        string strengthsLabel = language == "English" ? "Strengths" : "Điểm mạnh";
+        string improvementLabel = language == "English" ? "Needs improvement" : "Cần cải thiện";
+
+        if (!string.IsNullOrEmpty(strengths))
+        {
+            review = strengthsLabel + ": " + strengths;
+        }
+
+        if (!string.IsNullOrEmpty(improvement))
+        {
+            if (!string.IsNullOrEmpty(review))
+            {
+                review += "\n";
+            }
+
+            review += improvementLabel + ": " + improvement;
+        }
+
+        if (string.IsNullOrEmpty(review))
+        {
+            review = normalized;
+        }
+
+        return true;
+    }
+
     private string GetLocalizedTranscriptFallback()
     {
         return language == "English"
@@ -1602,6 +1741,7 @@ public class AIAudioClient : MonoBehaviour
     private void ResetConversationMemory(bool renewSessionId)
     {
         _conversationHistory.Clear();
+        HideFinalEvaluationCanvas();
 
         if (!renewSessionId) return;
 

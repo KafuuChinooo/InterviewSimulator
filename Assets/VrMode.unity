@@ -655,7 +655,6 @@ MonoBehaviour:
   sendTextButton: {fileID: 0}
   startRecordButton: {fileID: 1280604480}
   stopSendButton: {fileID: 1269434636}
-  maxRecordSeconds: 10
   readDefaultScriptButton: {fileID: 1135171486}
   defaultScript: hi, this is kafuuchino speaking. you did good today
   jobTitle: Data Analyst
