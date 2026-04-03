@@ -13,6 +13,9 @@ public class GazeAndControllerMic : MonoBehaviour
     [Tooltip("Tham chieu toi AIAudioClient trong scene")]
     public AIAudioClient aiAudioClient;
 
+    [Tooltip("Tham chieu toi UIManager trong scene. Neu de trong se tu tim.")]
+    public UIManager uiManager;
+
     [Tooltip("Keo tat ca cac nut Mic vao day (Mic tieng Anh, Mic tieng Viet, v.v.).")]
     public GameObject[] micTargets;
 
@@ -24,6 +27,9 @@ public class GazeAndControllerMic : MonoBehaviour
 
     [Tooltip("KeyCode nut controller de click UI o tam man hinh - mac dinh JoystickButton1 (PS O)")]
     public KeyCode controllerClickButton = KeyCode.JoystickButton1;
+
+    [Tooltip("KeyCode nut controller de quay ve man hinh truoc - mac dinh JoystickButton2 (PS Square)")]
+    public KeyCode controllerBackButton = KeyCode.JoystickButton2;
 
     [Tooltip("Phim ban phim de test bat/tat ghi am trong editor")]
     public KeyCode keyboardToggleKey = KeyCode.P;
@@ -50,6 +56,15 @@ public class GazeAndControllerMic : MonoBehaviour
                 Debug.Log("[Gaze] Auto-assigned aiAudioClient from " + aiAudioClient.gameObject.name);
             else
                 Debug.LogError("[Gaze] Could not find AIAudioClient in scene.");
+        }
+
+        if (uiManager == null)
+        {
+            uiManager = FindObjectOfType<UIManager>(true);
+            if (uiManager != null)
+                Debug.Log("[Gaze] Auto-assigned uiManager from " + uiManager.gameObject.name);
+            else
+                Debug.LogWarning("[Gaze] Could not find UIManager in scene.");
         }
     }
 
@@ -87,7 +102,7 @@ public class GazeAndControllerMic : MonoBehaviour
         }
 
         eventSystem = EventSystem.current;
-        Debug.Log($"[Gaze] Config: micButton={controllerButton}, clickButton={controllerClickButton}");
+        Debug.Log($"[Gaze] Config: micButton={controllerButton}, clickButton={controllerClickButton}, backButton={controllerBackButton}");
     }
 
     GameObject GetActiveMic()
@@ -139,6 +154,11 @@ public class GazeAndControllerMic : MonoBehaviour
         if (Input.GetKeyDown(controllerClickButton))
         {
             TryClickCenterTarget();
+        }
+
+        if (Input.GetKeyDown(controllerBackButton))
+        {
+            HandleControllerBack();
         }
 
         if (currentMic == null) return;
@@ -210,6 +230,24 @@ public class GazeAndControllerMic : MonoBehaviour
 
         if (aiAudioClient == null || aiAudioClient.IsBusy) return;
         aiAudioClient.ToggleRecord();
+    }
+
+    void HandleControllerBack()
+    {
+        Debug.Log("[Gaze] Controller back button pressed.");
+
+        if (uiManager == null)
+        {
+            uiManager = FindObjectOfType<UIManager>(true);
+        }
+
+        if (uiManager == null)
+        {
+            Debug.LogWarning("[Gaze] Cannot go to previous screen because UIManager is missing.");
+            return;
+        }
+
+        uiManager.PreviousScreen();
     }
 
     bool TryClickCenterTarget()
