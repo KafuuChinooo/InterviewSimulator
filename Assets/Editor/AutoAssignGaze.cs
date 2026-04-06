@@ -2,6 +2,9 @@ using UnityEditor;
 using UnityEngine;
 
 #if UNITY_EDITOR
+/// <summary>
+/// Tool nhỏ trong Editor để gắn nhanh GazeAndControllerMic vào scene hiện tại.
+/// </summary>
 public static class AutoAssignGaze
 {
     [MenuItem("Tools/VirtualHire/Attach Gaze And Controller Mic")]
@@ -45,5 +48,9 @@ public static class AutoAssignGaze
         Selection.activeGameObject = parent;
         EditorUtility.DisplayDialog("Attach Gaze", "GazeAndControllerMic added to " + parent.name + (mic != null ? " (mic: " + mic.name + ")" : " (mic not found)"), "OK");
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }
 #endif

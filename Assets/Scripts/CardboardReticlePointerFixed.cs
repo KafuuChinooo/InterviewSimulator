@@ -1,6 +1,6 @@
-// Patched version of CardboardReticlePointer that suppresses
-// "SendMessage has no receiver!" warnings on non-interactive objects.
-// Replace the original CardboardReticlePointer component with this one on your Player/Camera.
+// Bản vá cho CardboardReticlePointer.
+// Mục tiêu chính là chặn warning "SendMessage has no receiver!" khi raycast trúng object không có handler.
+// Gắn script này thay cho CardboardReticlePointer gốc trên Player/Camera.
 
 using UnityEngine;
 
@@ -43,7 +43,7 @@ public class CardboardReticlePointerFixed : MonoBehaviour
         {
             if (_gazedAtObject != hit.transform.gameObject)
             {
-                // FIX: Added SendMessageOptions.DontRequireReceiver to prevent warnings
+                // Dùng DontRequireReceiver để object không cần implement đủ callback vẫn không spam warning.
                 _gazedAtObject?.SendMessage("OnPointerExit", SendMessageOptions.DontRequireReceiver);
                 _gazedAtObject = hit.transform.gameObject;
                 _gazedAtObject.SendMessage("OnPointerEnter", SendMessageOptions.DontRequireReceiver);
@@ -54,7 +54,7 @@ public class CardboardReticlePointerFixed : MonoBehaviour
         }
         else
         {
-            // FIX: Added SendMessageOptions.DontRequireReceiver to prevent warnings
+            // Khi không còn trỏ vào object nào, vẫn thoát an toàn mà không ép object phải có receiver.
             _gazedAtObject?.SendMessage("OnPointerExit", SendMessageOptions.DontRequireReceiver);
             _gazedAtObject = null;
             ResetParams();
@@ -161,4 +161,8 @@ public class CardboardReticlePointerFixed : MonoBehaviour
         mesh.triangles = indices;
         mesh.RecalculateBounds();
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

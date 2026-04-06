@@ -4,6 +4,9 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 
+/// <summary>
+/// Ghi lại số liệu độ trễ của từng bước STT/LLM/TTS ra CSV để tiện đo hiệu năng sau mỗi phiên.
+/// </summary>
 public static class AIPerformanceCsvLogger
 {
     private static readonly object SyncRoot = new object();
@@ -39,6 +42,7 @@ public static class AIPerformanceCsvLogger
             string csvPath = GetCsvPath(fileName);
             lock (SyncRoot)
             {
+                // Đảm bảo file log luôn có thư mục và header trước khi append dữ liệu mới.
                 EnsureDirectoryExists(csvPath);
                 EnsureHeader(csvPath);
 
@@ -107,4 +111,8 @@ public static class AIPerformanceCsvLogger
 
         return "\"" + safeValue.Replace("\"", "\"\"") + "\"";
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

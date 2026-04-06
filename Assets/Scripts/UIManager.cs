@@ -2,6 +2,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+/// <summary>
+/// Quản lý flow chuyển màn hình, lựa chọn ngôn ngữ/chức vụ và đồng bộ dữ liệu sang AIAudioClient.
+/// </summary>
 public class UIManager : MonoBehaviour
 {
     [Header("==== Dữ liệu ngôn ngữ và vị trí ====")]
@@ -54,6 +57,7 @@ public class UIManager : MonoBehaviour
 
         // 2. Chế độ quét rác: Tìm TẤT CẢ các object bắt đầu bằng "Trang_" đang mở và TẮT HẾT.
         // Giúp miễn nhiễm với lỗi rác giao diện, sai array, hoặc kéo màn hình lung tung.
+        // Quét thêm object tên "Trang_" để tránh còn sót UI active do cấu hình scene hoặc quên gắn vào mảng.
         var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
         foreach (var obj in allObjects)
         {
@@ -181,6 +185,11 @@ public class UIManager : MonoBehaviour
         if (aiAudioClient == null) return;
         if (currentScreenIndex != autoAskScreenIndex) return;
 
+        // Chỉ màn hình phỏng vấn chính mới tự kích hoạt câu mở đầu từ AI.
         aiAudioClient.AskOpeningQuestion();
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

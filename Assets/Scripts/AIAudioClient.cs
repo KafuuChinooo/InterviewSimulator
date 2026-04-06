@@ -18,12 +18,14 @@ using TMPro;
 /// 2. Gắn script này vào GameObject đó
 /// 3. Kéo các UI element vào các slot trong Inspector (xem bên dưới)
 /// 4. Đảm bảo FastAPI server đang chạy: python main.py
+/// Note: File này là trung tâm điều phối voice/text/chat/TTS nên khá dài.
+/// Các khối phía dưới đã được chia theo section để dễ lần theo luồng xử lý hơn.
 /// </summary>
 public class AIAudioClient : MonoBehaviour
 {
     [Header("=== SERVER ===")]
     [Tooltip("URL của FastAPI server (không có dấu / ở cuối). Nếu chạy trên điện thoại, dùng IP LAN của PC thay vì 127.0.0.1.")]
-    public string serverUrl = "http://192.168.1.22:8000";
+    public string serverUrl = "http://127.0.0.1:8000";
     [Tooltip("Session id gui sang backend. Neu de trong se tu sinh.")]
     public string sessionId = "";
 
@@ -89,6 +91,7 @@ public class AIAudioClient : MonoBehaviour
     public string performanceCsvFileName = "ai_latency_metrics.csv";
 
     // --- Private state ---
+    // Nhóm state này giữ toàn bộ vòng đời của một lượt tương tác: ghi âm, gửi request, phát audio, và history chat.
     private AudioClip _recordingClip;
     private Coroutine _startRecordingCoroutine;
     private bool _isRecording = false;
@@ -1940,6 +1943,7 @@ public class AIAudioClient : MonoBehaviour
     // ─────────────────────────────────────────────────────────────
     // JSON Models
     // ─────────────────────────────────────────────────────────────
+    // Các model bên dưới map trực tiếp với payload/response từ backend FastAPI.
     [System.Serializable] private class ChatPayload  { 
         public string session_id;
         public string message; 
@@ -1985,4 +1989,8 @@ public class AIAudioClient : MonoBehaviour
         public string interview_type; 
         public string language; 
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

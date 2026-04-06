@@ -3,6 +3,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using System.Collections.Generic;
 
+/// <summary>
+/// Script debug cho editor: xoay camera bằng chuột phải và giả lập gaze click ở tâm màn hình.
+/// </summary>
 public class CameraDebug : MonoBehaviour
 {
     [Header("Camera Rotation")]
@@ -180,4 +183,8 @@ public class CameraDebug : MonoBehaviour
             gazeTimer = 0f;
         }
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

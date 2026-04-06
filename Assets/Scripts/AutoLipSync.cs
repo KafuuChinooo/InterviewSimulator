@@ -1,6 +1,9 @@
 using UnityEngine;
 
 [DisallowMultipleComponent]
+/// <summary>
+/// Điều khiển blend shape miệng theo cường độ âm thanh đang phát từ AudioSource.
+/// </summary>
 public class AutoLipSync : MonoBehaviour
 {
     [Header("References")]
@@ -54,6 +57,7 @@ public class AutoLipSync : MonoBehaviour
         float targetWeight = 0f;
         if (audioSource != null && audioSource.isPlaying)
         {
+            // Lấy biên độ tín hiệu đầu ra để đổi thành độ mở miệng tương đối.
             audioSource.GetOutputData(_samples, 0);
             float rms = CalculateRmsVolume();
             targetWeight = Mathf.Clamp((Mathf.Max(0f, rms - silenceThreshold)) * sensitivity, 0f, maxWeight);
@@ -145,4 +149,8 @@ public class AutoLipSync : MonoBehaviour
 
         skinnedMeshRenderer.SetBlendShapeWeight(_blendShapeIndex, Mathf.Clamp(weight, 0f, maxWeight));
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }

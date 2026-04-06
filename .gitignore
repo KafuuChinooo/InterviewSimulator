@@ -98,5 +98,16 @@ InitTestScene*.unity*
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
+# Python / AI helper artifacts
+*.pyc
+__pycache__/
+/.venv/
+/.AI/AI/venv/
+/.AI/AI/models/
+/.AI/AI/runtime/
+
+# Submission cleanup
+*.mp4
+
 # Thư mục .AI 
 # Bỏ qua các thư mục chứa dữ liệu cá nhân

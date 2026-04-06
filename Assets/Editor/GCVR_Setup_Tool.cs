@@ -5,6 +5,9 @@ using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
 using System.IO;
 
+/// <summary>
+/// Cửa sổ hỗ trợ setup nhanh Google Cardboard cho người mới trong Unity Editor.
+/// </summary>
 public class GCVR_Setup_Tool : EditorWindow
 {
     static AddRequest request;
@@ -86,6 +89,7 @@ public class GCVR_Setup_Tool : EditorWindow
         }
         else
         {
+            // PackageManager không trả progress chi tiết ở đây, nên mô phỏng progress để người dùng biết tool còn chạy.
             // Simulate progress
             window.progressMessage = "Installing Google SDK...";
             window.progressValue += 0.01f;
@@ -164,5 +168,9 @@ public class GCVR_Setup_Tool : EditorWindow
             }
         }
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }
 #endif

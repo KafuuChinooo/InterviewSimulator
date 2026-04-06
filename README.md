@@ -1,81 +1,69 @@
 # VirtuHire - AI Interview Simulator
 
-Dự án mô phỏng phỏng vấn bằng công nghệ thực tế ảo (VR) và Mobile, sử dụng AI (FastAPI, Whisper STT, Piper TTS, Gemini LLM) để đóng vai trò người phỏng vấn tương tác trực tiếp bằng giọng nói với người học. 
+Ứng dụng mô phỏng phỏng vấn bằng VR/Mobile kết hợp AI.
 
----
+## Thành phần chính
 
-## Cơ cấu thư mục chính
+- `Assets/`: phần Unity, scene, UI, audio và script điều khiển.
+- `.AI/AI/`: backend FastAPI xử lý STT, hội thoại AI và TTS.
 
-- **`/Assets/`**: Chứa toàn bộ tài nguyên Unity (Mã nguồn C#, Giao diện UI, file âm thanh, Scene, Component điều khiển Cardboard VR).
-- **`/.AI/AI/`**: Chứa mã nguồn của Backend AI (FastAPI server xử lý logic hội thoại, nhận diện giọng nói và tổng hợp giọng nói của phiên phỏng vấn).
+## Chạy backend
 
----
+Yêu cầu:
+- Python 3.10 trở lên
+- FFmpeg đã được cài và thêm vào `PATH`
 
-## 1. Hướng dẫn cài đặt và chạy Backend AI
+Cài đặt:
 
-### Yêu cầu cài đặt
-- **Python 3.10** trở lên.
-- Đã cài đặt [FFmpeg](https://ffmpeg.org/download.html) và thêm vào biến môi trường `PATH` của máy (bắt buộc để backend xử lý file âm thanh ghi âm từ Unity).
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+cd .AI/AI
+pip install -r requirements.txt
+```
 
-### Thiết lập môi trường
+Tạo file `.env` trong `.AI/AI/` nếu cần:
 
-1. Mở Terminal (Powershell/Cmd) tại thư mục gốc của dự án (`InterviewSimulator/`).
-2. Tạo môi trường ảo (nếu bạn chưa có):
-   ```bash
-   python -m venv .venv
-   ```
-3. Kích hoạt môi trường ảo:
-   - **Windows:** `.venv\Scripts\activate`
-   - **Mac/Linux:** `source .venv/bin/activate`
-4. Di chuyển vào thư mục AI và cài đặt các thư viện cần thiết:
-   ```bash
-   cd .AI/AI
-   pip install -r requirements.txt
-   ```
-5. **Cấu hình API Key:**
-   Đảm bảo bạn có file `.env` ở trong thư mục `.AI/AI/` chứa các key cần dùng, ví dụ:
-   ```env
-   GEMINI_API_KEY=dien_api_key_cua_ban_vao_day
-   ```
-   *(Các model TTS và STT cục bộ như Piper/Whisper sẽ tự động được tải ở lần gọi đầu tiên vào thư mục `models/` nếu chưa có).*
+```env
+GEMINI_API_KEY=your_api_key
+```
 
-### Chạy Server AI
+Chạy server:
 
-Trong thư mục `.AI/AI/` với môi trường ảo đã được kích hoạt, bạn sử dụng lệnh:
 ```bash
 python main.py
 ```
-> **Mẹo:** Giao diện điều khiển (Admin Dashboard) để theo dõi đoạn chat và gửi lệnh ẩn có thể được truy cập tại: `http://127.0.0.1:8000/admin` trên trình duyệt máy tính.
 
-*(Lưu ý: Nếu bạn Build Unity ra điện thoại mà muốn nó giao tiếp với máy tính, máy tính phải mở cửa mạng LAN. Khi đó hãy bắt đầu uvicorn bằng lệnh: `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`)*
+Mặc định backend chạy ở `http://127.0.0.1:8000`.
 
----
+## Mở project Unity
 
-## 2. Hướng dẫn cài đặt và cấu hình Unity
+1. Mở thư mục `InterviewSimulator/` bằng Unity Hub.
+2. Dùng Unity 2022 LTS hoặc mới hơn nếu có thể.
+3. Mở scene chính để demo.
+4. Kiểm tra `AIAudioClient` trong Inspector:
+   - Chạy trên máy tính: `http://127.0.0.1:8000`
+   - Chạy trên điện thoại: đổi sang IP LAN của máy chạy backend
 
-### Yêu cầu hệ thống
-- **Unity Editor** (phiên bản 2022 LTS trở lên được khuyên dùng, hỗ trợ module Android Build Support).
-- Bộ SDK, NDK, OpenJDK (cài trực tiếp qua Unity Hub).
+## Chạy thử
 
-### Cấu trúc và Setup trên Editor
-1. Mở **Unity Hub**, chọn **Add project** và điều hướng tới thư mục gốc `InterviewSimulator/`.
-2. Mở dự án lên, vào thư mục `Assets/Scenes/` và mở Scene đóng vai trò là điểm bắt đầu.
-3. **Cấu hình kết nối tới Server:**
-   - Trong Hierarchy, tìm Game Object quản lý âm thanh (ví dụ như `AIAudioManager` - vật thể mà bạn gắn script `AIAudioClient.cs`).
-   - Ở cửa sổ **Inspector**, tìm mục **Server Url**:
-     - **Chạy Play Mode trên máy tính:** Để `http://127.0.0.1:8000`.
-     - **Build ra điện thoại (Android/VR):** Đổi IP thành IP cục bộ của máy tính của bạn (VD: `http://192.168.1.123:8000`).
+1. Khởi động backend trước.
+2. Bấm `Play` trong Unity.
+3. Thử các flow chính:
+   - chọn ngôn ngữ
+   - chọn vị trí phỏng vấn
+   - ghi âm / gửi câu hỏi
+   - nhận phản hồi giọng nói từ AI
 
-### Chạy Test trực tiếp (Play Mode)
-1. Hãy chắc chắn Terminal chạy Backend AI (FastAPI) chưa bị tắt.
-2. Bấm nút **Play** ở trên cùng Unity.
-3. Test các tính năng bằng cách thao tác với UI (Gaze/Click rọi mắt vào nút): Bắt đầu ghi âm, Đổi ngôn ngữ Tiếng Việt/English, chọn loại phỏng vấn.
-4. Mọi lỗi về kết nối sẽ đều được in ra ở bảng **Console** bên trong Unity.
+## Build Android
 
-### Build và Cài đặt lên Kính / Điện thoại Android
+1. Vào `File > Build Settings`
+2. Chọn `Android`
+3. Bấm `Switch Platform`
+4. Kiểm tra Android SDK/NDK/OpenJDK trong Unity Hub
+5. Dùng `Build And Run` để cài lên thiết bị
 
-1. Đi tới **File > Build Settings**.
-2. Đổi nền tảng biên dịch sang Mobile bằng cách chọn **Android**, rồi bấm **Switch Platform**.
-3. Tại **Edit > Project Settings > XR Plug-in Management**, kiểm tra chắc chắn đã đánh dấu tích cấu hình cho **Cardboard** (nếu app xuất VR).
-4. Cắm cáp kết nối từ điện thoại hệ điều hành Android vào máy tính, đảm bảo đã bật cấu hình lập trình viên (USB Debugging).
-5. Nhấn **Build And Run** để Unity biên dịch project ra file `hr.apk` và thiết lập trực tiếp lên thiết bị di động của bạn để trải nghiệm.
+## Ghi chú
+
+- Nếu app chạy trên điện thoại còn backend chạy trên máy tính, hai thiết bị phải cùng mạng LAN.
+- Một số asset sample vẫn được giữ lại vì scene hiện tại còn tham chiếu trực tiếp.

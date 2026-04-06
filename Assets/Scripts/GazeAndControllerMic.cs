@@ -72,6 +72,7 @@ public class GazeAndControllerMic : MonoBehaviour
     {
         if (micTargets == null || micTargets.Length == 0)
         {
+            // Tự quét các object có tên bắt đầu bằng "mic" để giảm thao tác kéo thả trong scene test.
             var found = new List<GameObject>();
             foreach (var go in GameObject.FindObjectsOfType<GameObject>())
             {
@@ -171,6 +172,8 @@ public class GazeAndControllerMic : MonoBehaviour
     {
         if (aiAudioClient == null) return;
 
+        // Màu sắc ở đây chỉ đóng vai trò feedback trạng thái:
+        // đỏ khi đang ghi, vàng khi AI đang xử lý, mặc định khi rảnh.
         bool isRecording = aiAudioClient.IsRecording;
         bool isBusy = aiAudioClient.IsBusy;
 
@@ -343,4 +346,8 @@ public class GazeAndControllerMic : MonoBehaviour
 
         return new Vector2(Screen.width / 2f, Screen.height / 2f);
     }
+
+    // /\_/\\
+    // ( o.o )  [ kafuu ]
+    //  > ^ <
 }
